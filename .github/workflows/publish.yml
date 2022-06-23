@@ -1,0 +1,31 @@
+name: Publish to PYPI
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: publish
+    steps:
+      - name: Setup Python 3.9
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.9
+      - name: Fetch rqlite
+        uses: actions/checkout@v2
+      - name: Generic python setup
+        run: |
+          python -m pip install --upgrade pip
+      - name: Installing dependencies
+        run: |
+          python -m pip install -r requirements.txt
+      - name: Build
+        run: |
+          python -m build
+      - name: Publish distribution 📦 to PyPI
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
