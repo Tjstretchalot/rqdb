@@ -1,21 +1,21 @@
 from typing import Any, Literal, Optional, Tuple, TYPE_CHECKING
-from rqlite.errors import DBError
-from rqlite.logging import log
-from rqlite.result import BulkResult, ResultItem, ResultItemCursor
-from rqlite.preprocessing import get_sql_command, clean_nulls
+from rqdb.errors import DBError
+from rqdb.logging import log
+from rqdb.result import BulkResult, ResultItem, ResultItemCursor
+from rqdb.preprocessing import get_sql_command, clean_nulls
 import time
 import secrets
 
 if TYPE_CHECKING:
-    from rqlite.async_connection import AsyncConnection
+    from rqdb.connection import Connection
 
 
-class AsyncCursor:
+class Cursor:
     """A synchronous cursor for executing queries on a rqlite cluster."""
 
     def __init__(
         self,
-        connection: "AsyncConnection",
+        connection: "Connection",
         read_consistency: Literal["none", "weak", "strong"],
         freshness: str,
     ):
@@ -44,7 +44,7 @@ class AsyncCursor:
             return 0
         return self.cursor.rowcount
 
-    async def execute(
+    def execute(
         self,
         operation: str,
         parameters: Optional[tuple] = None,
@@ -108,11 +108,11 @@ class AsyncCursor:
             log(self.connection.log_config.read_start, msg_supplier)
 
             path = f"/db/query?level={read_consistency}"
-            if self.read_consistency == "none":
+            if read_consistency == "none":
                 path += f"&freshness={freshness}"
 
             request_started_at = time.perf_counter()
-            response = await self.connection.fetch_response(
+            response = self.connection.fetch_response(
                 "POST",
                 path,
                 json=[[cleaned_query, *parameters]],
@@ -134,23 +134,22 @@ class AsyncCursor:
             log(self.connection.log_config.write_start, msg_supplier)
 
             request_started_at = time.perf_counter()
-            response = await self.connection.fetch_response(
+            response = self.connection.fetch_response(
                 "POST",
                 "/db/execute",
                 json=[[cleaned_query, *parameters]],
                 headers={"Content-Type": "application/json; charset=UTF-8"},
             )
 
-        payload: dict = await response.json()
-        await response.__aexit__(None, None, None)
+        payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
         def msg_supplier(max_length: Optional[int]) -> str:
-            abridged_payload = repr(payload)
+            abridged_payload = response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
 
-            return f"    {{{request_id}}} in {request_time:.3f}s -> {abridged_payload}"
+            return f"    {{{request_id}}} in {request_time:.3f}s -> {repr(abridged_payload)}"
 
         log(
             self.connection.log_config.read_response
@@ -170,7 +169,7 @@ class AsyncCursor:
                     return f"    {{{request_id}}} ->> stale read, retrying with weak consistency"
 
                 log(self.connection.log_config.read_stale, msg_supplier)
-                return await self.execute(
+                return self.execute(
                     operation,
                     parameters,
                     raise_on_error=raise_on_error,
@@ -192,7 +191,7 @@ class AsyncCursor:
 
         return result
 
-    async def executemany2(
+    def executemany2(
         self,
         operations: Tuple[str],
         seq_of_parameters: Optional[Tuple[Tuple[Any]]] = None,
@@ -251,14 +250,13 @@ class AsyncCursor:
         log(self.connection.log_config.write_start, msg_supplier)
 
         request_started_at = time.perf_counter()
-        response = await self.connection.fetch_response(
+        response = self.connection.fetch_response(
             "POST",
             path,
             json=cleaned_request,
             headers={"Content-Type": "application/json; charset=UTF-8"},
         )
-        payload: dict = await response.json()
-        await response.__aexit__(None, None, None)
+        payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
         def msg_supplier(max_length: Optional[int]) -> str:
@@ -279,7 +277,7 @@ class AsyncCursor:
 
         return result
 
-    async def executemany3(
+    def executemany3(
         self,
         operation_and_parameters: Tuple[Tuple[str, Tuple[Any]]],
         transaction: bool = True,
@@ -329,14 +327,13 @@ class AsyncCursor:
         log(self.connection.log_config.write_start, msg_supplier)
 
         request_started_at = time.perf_counter()
-        response = await self.connection.fetch_response(
+        response = self.connection.fetch_response(
             "POST",
             path,
             json=cleaned_request,
             headers={"Content-Type": "application/json; charset=UTF-8"},
         )
-        payload: dict = await response.json()
-        await response.__aexit__(None, None, None)
+        payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
         def msg_supplier(max_length: Optional[int]) -> str:

@@ -1,14 +1,14 @@
 from typing import List, Literal, Optional, Tuple, Union, TYPE_CHECKING
-from rqlite.errors import (
+from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
     MaxRedirectsError,
     UnexpectedResponse,
 )
-import rqlite.logging
+import rqdb.logging
 import random
 import aiohttp
-from rqlite.async_cursor import AsyncCursor
+from rqdb.async_cursor import AsyncCursor
 import sys
 import io
 import inspect
@@ -31,7 +31,7 @@ class AsyncConnection:
         max_attempts_per_host: int = 2,
         read_consistency: Literal["none", "weak", "strong"] = "weak",
         freshness: str = "5m",
-        log: Union[rqlite.logging.LogConfig, bool] = True,
+        log: Union[rqdb.logging.LogConfig, bool] = True,
     ):
         """Initializes a new synchronous Connection. This is typically
         called with the alias rqlite.connect
@@ -64,11 +64,11 @@ class AsyncConnection:
                 If False, logs will be disabled. If a LogConfig, the
                 configuration of the logs.
         """
-        log_config: rqlite.logging.LogConfig = None
+        log_config: rqdb.logging.LogConfig = None
         if log is True:
-            log_config = rqlite.logging.LogConfig()
+            log_config = rqdb.logging.LogConfig()
         elif log is False:
-            log_config = rqlite.logging.DISABLED_LOG_CONFIG
+            log_config = rqdb.logging.DISABLED_LOG_CONFIG
         else:
             log_config = log
 
@@ -181,7 +181,7 @@ class AsyncConnection:
 
                     return f"Failed to connect to node {e.host} - {str_error}"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.connect_timeout, msg_supplier, exc_info=True
                 )
                 node_path.append((e.host, e))
@@ -194,7 +194,7 @@ class AsyncConnection:
 
                     return f"Max redirects reached for node {e.host} (redirect path: {str_redirect_path})"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.non_ok_response, msg_supplier, exc_info=True
                 )
                 node_path.append((e.host, e))
@@ -207,7 +207,7 @@ class AsyncConnection:
 
                     return f"Unexpected response from node {e.host}: {str_error}"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.non_ok_response, msg_supplier, exc_info=True
                 )
                 raise
@@ -323,7 +323,7 @@ class AsyncConnection:
             path += "?fmt=sql"
 
         request_id = secrets.token_hex(4)
-        rqlite.logging.log(
+        rqdb.logging.log(
             self.log_config.backup_start,
             lambda _: f"  [RQLITE BACKUP {{{request_id}}}] raw={raw}",
         )
@@ -343,7 +343,7 @@ class AsyncConnection:
             await resp.__aexit__(None, None, None)
 
         time_taken = time.perf_counter() - request_started_at
-        rqlite.logging.log(
+        rqdb.logging.log(
             self.log_config.backup_end,
             lambda _: f"    {{{request_id}}} in {time_taken:.3f}s ->> backup fully written",
         )

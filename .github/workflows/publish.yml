@@ -13,7 +13,7 @@ jobs:
         uses: actions/setup-python@v1
         with:
           python-version: 3.9
-      - name: Fetch rqlite
+      - name: Fetch rqdb
         uses: actions/checkout@v2
       - name: Generic python setup
         run: |

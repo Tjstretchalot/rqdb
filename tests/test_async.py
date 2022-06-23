@@ -1,6 +1,6 @@
 import helper  # noqa
 import unittest
-import rqlite
+import rqdb
 import logging
 import asyncio
 import io
@@ -19,7 +19,7 @@ def async_test(func):
 class Test(unittest.TestCase):
     @async_test
     async def test_single_strong(self):
-        async with rqlite.connect_async(HOSTS) as conn:
+        async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="strong")
             await cursor.execute(
                 "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
@@ -36,7 +36,7 @@ class Test(unittest.TestCase):
 
     @async_test
     async def test_single_weak(self):
-        async with rqlite.connect_async(HOSTS) as conn:
+        async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="weak")
             await cursor.execute(
                 "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
@@ -53,7 +53,7 @@ class Test(unittest.TestCase):
 
     @async_test
     async def test_single_none_no_freshness(self):
-        async with rqlite.connect_async(HOSTS) as conn:
+        async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="none", freshness="0")
             await cursor.execute(
                 "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
@@ -70,7 +70,7 @@ class Test(unittest.TestCase):
 
     @async_test
     async def test_single_with_freshness(self):
-        async with rqlite.connect_async(HOSTS) as conn:
+        async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="none", freshness="1m")
             await cursor.execute(
                 "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
@@ -87,9 +87,9 @@ class Test(unittest.TestCase):
 
     @async_test
     async def test_down_node_strong(self):
-        async with rqlite.connect_async(
+        async with rqdb.connect_async(
             [*HOSTS, "127.0.0.1:1234"],
-            log=rqlite.LogConfig(
+            log=rqdb.LogConfig(
                 connect_timeout={"enabled": True, "level": logging.DEBUG}
             ),
         ) as conn:
@@ -109,7 +109,7 @@ class Test(unittest.TestCase):
 
     @async_test
     async def test_backup(self):
-        async with rqlite.connect_async(HOSTS) as conn:
+        async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="strong")
             await cursor.execute(
                 "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"

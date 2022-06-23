@@ -1,6 +1,6 @@
 import helper  # noqa
 import unittest
-import rqlite
+import rqdb
 import logging
 import io
 
@@ -10,7 +10,7 @@ HOSTS = ["127.0.0.1:4001"]
 
 class Test(unittest.TestCase):
     def test_single_strong(self):
-        conn = rqlite.connect(HOSTS)
+        conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="strong")
         cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
         try:
@@ -24,7 +24,7 @@ class Test(unittest.TestCase):
             cursor.execute("DROP TABLE test")
 
     def test_single_weak(self):
-        conn = rqlite.connect(HOSTS)
+        conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="weak")
         cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
         try:
@@ -38,7 +38,7 @@ class Test(unittest.TestCase):
             cursor.execute("DROP TABLE test")
 
     def test_single_none_no_freshness(self):
-        conn = rqlite.connect(HOSTS)
+        conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="none", freshness="0")
         cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
         try:
@@ -52,7 +52,7 @@ class Test(unittest.TestCase):
             cursor.execute("DROP TABLE test")
 
     def test_single_with_freshness(self):
-        conn = rqlite.connect(HOSTS)
+        conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="none", freshness="1m")
         cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
         try:
@@ -66,9 +66,9 @@ class Test(unittest.TestCase):
             cursor.execute("DROP TABLE test")
 
     def test_down_node_strong(self):
-        conn = rqlite.connect(
+        conn = rqdb.connect(
             [*HOSTS, "127.0.0.1:1234"],
-            log=rqlite.LogConfig(
+            log=rqdb.LogConfig(
                 connect_timeout={"enabled": True, "level": logging.DEBUG}
             ),
         )
@@ -85,7 +85,7 @@ class Test(unittest.TestCase):
             cursor.execute("DROP TABLE test")
 
     def test_backup(self):
-        conn = rqlite.connect(HOSTS)
+        conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="strong")
         cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
         try:

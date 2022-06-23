@@ -1,5 +1,5 @@
 """This module describes a result for a query or bulk query"""
-from rqlite.errors import DBError as Error
+from rqdb.errors import DBError as Error
 from typing import Any, Iterator, List, Optional
 
 

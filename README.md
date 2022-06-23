@@ -1,4 +1,4 @@
-# rqlite
+# rqdb
 
 This is an unofficial python client for [rqlite](https://github.com/rqlite/rqlite), a
 lightweight distributed relational database based on SQLite.
@@ -12,7 +12,7 @@ the underlying rqlite API.
 ## Installation
 
 ```py
-pip install rqlite
+pip install rqdb
 ```
 
 ## Usage
@@ -20,10 +20,10 @@ pip install rqlite
 Synchronous queries:
 
 ```py
-import rqlite
+import rqdb
 import secrets
 
-conn = rqlite.connect(['127.0.0.1:4001'])
+conn = rqdb.connect(['127.0.0.1:4001'])
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE persons (id INTEGER PRIMARY KEY, uid TEXT UNIQUE NOT NULL, name TEXT NOT NULL)')
 cursor.execute('CREATE TABLE pets (id INTEGER PRIMARY KEY, name TEXT NOT NULL, owner_id INTEGER NOT NULL REFERENCES persons(id) ON DELETE CASCADE)')
@@ -58,11 +58,11 @@ assert result[1].rows_affected == 1
 Asynchronous queries:
 
 ```py
-import rqlite
+import rqdb
 import secrets
 
 async def main():
-    async with rqlite.connect_async(['127.0.0.1:4001']) as conn:
+    async with rqdb.connect_async(['127.0.0.1:4001']) as conn:
         cursor = conn.cursor()
 
         result = await cursor.execute(
@@ -129,12 +129,12 @@ using `log=False` in the `connect` call. If logging is desired but just needs to
 configured slightly, it can be done as follows:
 
 ```py
-import rqlite
+import rqdb
 import logging
 
-conn = rqlite.connect(
+conn = rqdb.connect(
     ['127.0.0.1:4001'],
-    log=rqlite.LogConfig(
+    log=rqdb.LogConfig(
         # Started a SELECT query
         read_start={
             'enabled': True,

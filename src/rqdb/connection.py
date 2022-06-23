@@ -1,14 +1,14 @@
 from typing import List, Literal, Optional, Tuple, Union, TYPE_CHECKING
-from rqlite.errors import (
+from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
     MaxRedirectsError,
     UnexpectedResponse,
 )
-import rqlite.logging
+import rqdb.logging
 import random
 import requests
-from rqlite.cursor import Cursor
+from rqdb.cursor import Cursor
 import io
 import secrets
 import time
@@ -29,7 +29,7 @@ class Connection:
         max_attempts_per_host: int = 2,
         read_consistency: Literal["none", "weak", "strong"] = "weak",
         freshness: str = "0",
-        log: Union[rqlite.logging.LogConfig, bool] = True,
+        log: Union[rqdb.logging.LogConfig, bool] = True,
     ):
         """Initializes a new synchronous Connection. This is typically
         called with the alias rqlite.connect
@@ -62,11 +62,11 @@ class Connection:
                 If False, logs will be disabled. If a LogConfig, the
                 configuration of the logs.
         """
-        log_config: rqlite.logging.LogConfig = None
+        log_config: rqdb.logging.LogConfig = None
         if log is True:
-            log_config = rqlite.logging.LogConfig()
+            log_config = rqdb.logging.LogConfig()
         elif log is False:
-            log_config = rqlite.logging.DISABLED_LOG_CONFIG
+            log_config = rqdb.logging.DISABLED_LOG_CONFIG
         else:
             log_config = log
 
@@ -161,7 +161,7 @@ class Connection:
 
                     return f"Failed to connect to node {e.host} - {str_error}"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.connect_timeout, msg_supplier, exc_info=True
                 )
                 node_path.append((e.host, e))
@@ -174,7 +174,7 @@ class Connection:
 
                     return f"Max redirects reached for node {e.host} (redirect path: {str_redirect_path})"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.non_ok_response, msg_supplier, exc_info=True
                 )
                 node_path.append((e.host, e))
@@ -187,7 +187,7 @@ class Connection:
 
                     return f"Unexpected response from node {e.host}: {str_error}"
 
-                rqlite.logging.log(
+                rqdb.logging.log(
                     self.log_config.non_ok_response, msg_supplier, exc_info=True
                 )
                 raise
@@ -298,7 +298,7 @@ class Connection:
                 backup will be in the smaller sqlite format.
         """
         request_id = secrets.token_hex(4)
-        rqlite.logging.log(
+        rqdb.logging.log(
             self.log_config.backup_start,
             lambda _: f"  [RQLITE BACKUP {{{request_id}}}] raw={raw}",
         )
@@ -313,7 +313,7 @@ class Connection:
 
         resp.close()
         time_taken = time.perf_counter() - request_started_at
-        rqlite.logging.log(
+        rqdb.logging.log(
             self.log_config.backup_end,
             lambda _: f"    {{{request_id}}} in {time_taken:.3f}s ->> backup fully written",
         )
