@@ -190,7 +190,7 @@ class BulkResult:
 
         return self
 
-    def raise_on_error(self) -> "BulkResult":
+    def raise_on_error(self, hint: Optional[str] = None) -> "BulkResult":
         """Raises an error if any of the queries in this bulk query have errors.
         Otherwise, returns self.
 
@@ -200,8 +200,9 @@ class BulkResult:
         Raises:
             Error: If any of the queries in this bulk query have errors.
         """
+        hint = "" if hint is None else f"; {hint}"
         for idx, item in enumerate(self.items):
-            item.raise_on_error(f"query idx={idx}")
+            item.raise_on_error(f"query idx={idx}{hint}")
 
         return self
 
