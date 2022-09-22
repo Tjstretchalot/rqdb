@@ -262,7 +262,7 @@ class AsyncCursor:
         request_time = time.perf_counter() - request_started_at
 
         def msg_supplier(max_length: Optional[int]) -> str:
-            abridged_payload = response.text()
+            abridged_payload = repr(payload)
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
 
@@ -340,7 +340,7 @@ class AsyncCursor:
         request_time = time.perf_counter() - request_started_at
 
         def msg_supplier(max_length: Optional[int]) -> str:
-            abridged_payload = response.text()
+            abridged_payload = repr(payload)
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
 
