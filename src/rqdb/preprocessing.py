@@ -24,6 +24,7 @@ def get_sql_command(sql_str: str) -> str:
     Raises:
         Exception: If the command could not be determined
     """
+    sql_str = sql_str.lstrip()
     if sql_str[:4].upper() == "WITH":
         match = WITH_MATCHER.match(sql_str)
         if match is None:
