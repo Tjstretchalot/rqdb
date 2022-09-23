@@ -31,10 +31,14 @@ def get_sql_command(sql_str: str) -> str:
             raise Exception(f"could not determine SQL command for {sql_str=}")
         return match.group("cmd").upper()
 
-    space_idx = sql_str.find(" ")
-    if space_idx == -1:
+    whitespace_idx = -1
+    for i, c in enumerate(sql_str):
+        if c.isspace():
+            whitespace_idx = i
+            break
+    else:
         raise Exception(f"could not determine SQL command for {sql_str=}")
-    return sql_str[:space_idx].upper()
+    return sql_str[:whitespace_idx].upper()
 
 
 def clean_nulls(sql_str: str, args: tuple) -> Tuple[str, tuple]:
