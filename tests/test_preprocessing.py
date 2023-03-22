@@ -29,6 +29,14 @@ class Test(unittest.TestCase):
             "INSERT",
         )
 
+    def test_named_with(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "WITH foo(name) AS (SELECT baz FROM bar) SELECT * FROM foo"
+            ),
+            "SELECT",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

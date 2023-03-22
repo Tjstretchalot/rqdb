@@ -6,7 +6,7 @@ from typing import Tuple
 
 
 WITH_MATCHER = re.compile(
-    r"WITH( RECURSIVE)?\s+(,?\s*\S+\s+AS\s+\(.+?\))+\s+(?P<cmd>INSERT|UPDATE|DELETE|SELECT)",
+    r"WITH( RECURSIVE)?\s+(,?\s*\S+(\s?\([^\)]+\))?\s+AS\s+((NOT\s+)?MATERIALIZED\s+)?\(.+?\))+\s+(?P<cmd>INSERT|UPDATE|DELETE|SELECT)",
     re.IGNORECASE | re.DOTALL,
 )
 """The matcher to use for determing the sql command for a SQL string with a WITH clause"""
