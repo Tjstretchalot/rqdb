@@ -37,6 +37,44 @@ class Test(unittest.TestCase):
             "SELECT",
         )
 
+    def test_named_with_multiple_columns(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "WITH foo(name, id) AS (SELECT baz, id FROM bar) SELECT * FROM foo"
+            ),
+            "SELECT",
+        )
+
+    def test_with_values(self):
+        self.assertEqual(
+            pp.get_sql_command("WITH foo(name) AS (VALUES (?)) SELECT * FROM foo"),
+            "SELECT",
+        )
+
+    def test_with_values_newlines(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "WITH foo(name) AS (VALUES (?), (?))\n      SELECT * FROM foo"
+            ),
+            "SELECT",
+        )
+
+    def test_with_values_multiple_columns(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "WITH foo(name, id) AS (VALUES (?, ?), (?, ?)) SELECT * FROM foo"
+            ),
+            "SELECT",
+        )
+
+    def test_with_values_multiple_columns_newlines(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "WITH\n foo\n(\nname\n,n id) \nAS \n(\nVALUES\n (\n?\n,\n ?\n)\n,\n (\n?\n,\n ?\n)\n)\n SELECT * FROM foo"
+            ),
+            "SELECT",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
