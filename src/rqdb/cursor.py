@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Iterable, Literal, Optional, Tuple, TYPE_CHECKING
 from rqdb.errors import DBError
 from rqdb.logging import log
 from rqdb.result import BulkResult, ResultItem, ResultItemCursor
@@ -22,7 +22,7 @@ class Cursor:
         self.connection = connection
         """The underlying connection to the rqlite cluster."""
 
-        self.read_consistency = read_consistency
+        self.read_consistency: Literal["none", "weak", "strong"] = read_consistency
         """The read consistency to use when executing queries."""
 
         self.freshness = freshness
@@ -47,7 +47,7 @@ class Cursor:
     def execute(
         self,
         operation: str,
-        parameters: Optional[tuple] = None,
+        parameters: Optional[Iterable[Any]] = None,
         raise_on_error: bool = True,
         read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
         freshness: Optional[str] = None,
@@ -58,7 +58,7 @@ class Cursor:
 
         Args:
             operation (str): The query to execute.
-            parameters (tuple): The parameters to pass to the query.
+            parameters (iterable): The parameters to pass to the query.
             raise_on_error (bool): If True, raise an error if the query fails. If
                 False, you can check the result item's error property to see if
                 the query failed.
@@ -90,7 +90,7 @@ class Cursor:
 
         if is_read:
 
-            def msg_supplier(max_length: Optional[int]) -> str:
+            def msg_supplier_1(max_length: Optional[int]) -> str:
                 abridged_query = operation
                 if max_length is not None and len(abridged_query) > max_length:
                     abridged_query = abridged_query[:max_length] + "..."
@@ -105,7 +105,7 @@ class Cursor:
 
                 return f"  [RQLITE {command} @ {read_consistency}{freshness_str} {{{request_id}}}] - {repr(abridged_query)}; {abridged_parameters}"
 
-            log(self.connection.log_config.read_start, msg_supplier)
+            log(self.connection.log_config.read_start, msg_supplier_1)
 
             path = f"/db/query?level={read_consistency}"
             if read_consistency == "none":
@@ -120,7 +120,7 @@ class Cursor:
             )
         else:
 
-            def msg_supplier(max_length: Optional[int]) -> str:
+            def msg_supplier_2(max_length: Optional[int]) -> str:
                 abridged_query = operation
                 if max_length is not None and len(abridged_query) > max_length:
                     abridged_query = abridged_query[:max_length] + "..."
@@ -131,7 +131,7 @@ class Cursor:
 
                 return f"  [RQLITE {command} {{{request_id}}}] - {repr(abridged_query)}; {abridged_parameters}"
 
-            log(self.connection.log_config.write_start, msg_supplier)
+            log(self.connection.log_config.write_start, msg_supplier_2)
 
             request_started_at = time.perf_counter()
             response = self.connection.fetch_response(
@@ -144,7 +144,7 @@ class Cursor:
         payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
-        def msg_supplier(max_length: Optional[int]) -> str:
+        def msg_supplier_3(max_length: Optional[int]) -> str:
             abridged_payload = response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
@@ -155,7 +155,7 @@ class Cursor:
             self.connection.log_config.read_response
             if is_read
             else self.connection.log_config.write_response,
-            msg_supplier,
+            msg_supplier_3,
         )
 
         if "error" in payload:
@@ -193,8 +193,8 @@ class Cursor:
 
     def executemany2(
         self,
-        operations: Tuple[str],
-        seq_of_parameters: Optional[Tuple[Tuple[Any]]] = None,
+        operations: Iterable[str],
+        seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
     ) -> BulkResult:
@@ -208,8 +208,8 @@ class Cursor:
         as if they are updates, i.e., no result rows will be returned.
 
         Args:
-            operations (Tuple[str]): The operations to execute.
-            seq_of_parameters (Tuple[Tuple[Any]]): The parameters to pass to each operation.
+            operations (Iterable[str]): The operations to execute.
+            seq_of_parameters (Iterable[Iterable[Any]]): The parameters to pass to each operation.
             transaction (bool): If True, execute the operations within a transaction.
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
@@ -224,30 +224,51 @@ class Cursor:
         if seq_of_parameters is None:
             seq_of_parameters = tuple(tuple() for _ in operations)
 
-        if len(operations) != len(seq_of_parameters):
-            raise ValueError(
-                f"Number of operations ({len(operations)}) does not match number of parameters ({len(seq_of_parameters)})"
-            )
-
         path = "/db/execute"
         if transaction:
             path += "?transaction"
 
         cleaned_request = []
-        for operation, parameters in zip(operations, seq_of_parameters):
+
+        operations_iter = iter(operations)
+        seq_of_parameters_iter = iter(seq_of_parameters)
+
+        next_operation: str = ""
+        next_parameters: Iterable[Any] = tuple()
+
+        while True:
+            try:
+                next_operation = next(operations_iter)
+            except StopIteration:
+                operations_iter = None
+            try:
+                next_parameters = next(seq_of_parameters_iter)
+            except StopIteration:
+                seq_of_parameters_iter = None
+
+            if (operations_iter is None) is not (seq_of_parameters_iter is None):
+                raise ValueError(
+                    "operations and seq_of_parameters must be the same length"
+                )
+
+            if operations_iter is None or seq_of_parameters_iter is None:
+                break
+
+            operation: str = next_operation
+            parameters: Iterable[Any] = next_parameters
             cleaned_query, parameters = clean_nulls(operation, parameters)
             cleaned_request.append([cleaned_query, *parameters])
 
         request_id = secrets.token_hex(4)
 
-        def msg_supplier(max_length: Optional[int]) -> str:
+        def msg_supplier_1(max_length: Optional[int]) -> str:
             abridged_request = repr(cleaned_request)
             if max_length is not None and len(abridged_request) > max_length:
                 abridged_request = abridged_request[:max_length] + "..."
 
             return f"  [RQLITE BULK {path} {{{request_id}}}] - {abridged_request}"
 
-        log(self.connection.log_config.write_start, msg_supplier)
+        log(self.connection.log_config.write_start, msg_supplier_1)
 
         request_started_at = time.perf_counter()
         response = self.connection.fetch_response(
@@ -259,7 +280,7 @@ class Cursor:
         payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
-        def msg_supplier(max_length: Optional[int]) -> str:
+        def msg_supplier_2(max_length: Optional[int]) -> str:
             abridged_payload = response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
@@ -268,7 +289,7 @@ class Cursor:
 
         log(
             self.connection.log_config.write_response,
-            msg_supplier,
+            msg_supplier_2,
         )
 
         result = BulkResult.parse(payload)
@@ -279,7 +300,7 @@ class Cursor:
 
     def executemany3(
         self,
-        operation_and_parameters: Tuple[Tuple[str, Tuple[Any]]],
+        operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
         transaction: bool = True,
         raise_on_error: bool = True,
     ) -> BulkResult:
@@ -317,14 +338,14 @@ class Cursor:
 
         request_id = secrets.token_hex(4)
 
-        def msg_supplier(max_length: Optional[int]) -> str:
+        def msg_supplier_1(max_length: Optional[int]) -> str:
             abridged_request = repr(cleaned_request)
             if max_length is not None and len(abridged_request) > max_length:
                 abridged_request = abridged_request[:max_length] + "..."
 
             return f"  [RQLITE BULK {path} {{{request_id}}}] - {abridged_request}"
 
-        log(self.connection.log_config.write_start, msg_supplier)
+        log(self.connection.log_config.write_start, msg_supplier_1)
 
         request_started_at = time.perf_counter()
         response = self.connection.fetch_response(
@@ -336,7 +357,7 @@ class Cursor:
         payload = response.json()
         request_time = time.perf_counter() - request_started_at
 
-        def msg_supplier(max_length: Optional[int]) -> str:
+        def msg_supplier_2(max_length: Optional[int]) -> str:
             abridged_payload = response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
@@ -345,7 +366,7 @@ class Cursor:
 
         log(
             self.connection.log_config.write_response,
-            msg_supplier,
+            msg_supplier_2,
         )
 
         result = BulkResult.parse(payload)

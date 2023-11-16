@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, TYPE_CHECKING
 from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
@@ -62,7 +62,6 @@ class Connection:
                 If False, logs will be disabled. If a LogConfig, the
                 configuration of the logs.
         """
-        log_config: rqdb.logging.LogConfig = None
         if log is True:
             log_config = rqdb.logging.LogConfig()
         elif log is False:
@@ -96,8 +95,8 @@ class Connection:
 
     def cursor(
         self,
-        read_consistency: Literal["none", "weak", "strong"] = None,
-        freshness: str = None,
+        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        freshness: Optional[str] = None,
     ) -> "Cursor":
         """Creates a new cursor for this connection.
 
@@ -121,8 +120,8 @@ class Connection:
         self,
         method: Literal["GET", "POST"],
         uri: str,
-        json: dict = None,
-        headers: dict = None,
+        json: Any = None,
+        headers: Optional[Dict[str, Any]] = None,
         stream: bool = False,
     ) -> requests.Response:
         """Fetches a response from the server by requesting it from a random node. If
@@ -147,7 +146,7 @@ class Connection:
         """
         node_path: List[Tuple[str, Exception]] = []
 
-        def attempt_host(host: Tuple[str, int]) -> requests.Response:
+        def attempt_host(host: Tuple[str, int]) -> Optional[requests.Response]:
             try:
                 return self.fetch_response_with_host(
                     *host, method, uri, json, headers, stream
@@ -222,7 +221,7 @@ class Connection:
         port: int,
         method: Literal["GET", "POST"],
         uri: str,
-        json: dict = None,
+        json: Any = None,
         headers={},
         stream: bool = False,
     ) -> requests.Response:

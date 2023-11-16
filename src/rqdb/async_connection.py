@@ -1,4 +1,13 @@
-from typing import List, Literal, Optional, Tuple, Union, TYPE_CHECKING
+from typing import (
+    Any,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    Protocol,
+    cast as typing_cast,
+)
 from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
@@ -14,6 +23,11 @@ import io
 import inspect
 import secrets
 import time
+
+
+class AsyncWritableIO(Protocol):
+    async def write(self, data: bytes) -> None:
+        ...
 
 
 class AsyncConnection:
@@ -64,7 +78,6 @@ class AsyncConnection:
                 If False, logs will be disabled. If a LogConfig, the
                 configuration of the logs.
         """
-        log_config: rqdb.logging.LogConfig = None
         if log is True:
             log_config = rqdb.logging.LogConfig()
         elif log is False:
@@ -96,7 +109,7 @@ class AsyncConnection:
         self.log_config = log_config
         """The log configuration for this connection and all cursors it creates."""
 
-        self.session: aiohttp.ClientSession = None
+        self.session: Optional[aiohttp.ClientSession] = None
         """The aiohttp session used to make requests to the cluster."""
 
     async def __aenter__(self) -> "AsyncConnection":
@@ -108,13 +121,14 @@ class AsyncConnection:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Closes the client session"""
         session = self.session
+        assert session is not None, "Exiting connection without entering it"
         self.session = None
         await session.__aexit__(exc_type, exc_val, exc_tb)
 
     def cursor(
         self,
-        read_consistency: Literal["none", "weak", "strong"] = None,
-        freshness: str = None,
+        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        freshness: Optional[str] = None,
     ) -> "AsyncCursor":
         """Creates a new cursor for this connection.
 
@@ -138,8 +152,8 @@ class AsyncConnection:
         self,
         method: Literal["GET", "POST"],
         uri: str,
-        json: dict = None,
-        headers: dict = None,
+        json: Any = None,
+        headers: Optional[dict] = None,
     ) -> aiohttp.ClientResponse:
         """Fetches a response from the server by requesting it from a random node. If
         a connection error occurs, this method will retry the request on a different
@@ -163,7 +177,9 @@ class AsyncConnection:
         """
         node_path: List[Tuple[str, Exception]] = []
 
-        async def attempt_host(host: Tuple[str, int]) -> aiohttp.ClientResponse:
+        async def attempt_host(
+            host: Tuple[str, int]
+        ) -> Optional[aiohttp.ClientResponse]:
             try:
                 return await self.fetch_response_with_host(
                     *host,
@@ -242,8 +258,8 @@ class AsyncConnection:
         port: int,
         method: Literal["GET", "POST"],
         uri: str,
-        json: dict = None,
-        headers={},
+        json: Any = None,
+        headers: Optional[dict] = None,
     ) -> aiohttp.ClientResponse:
         """Fetches a response from a particular host, and returns the status
         code and headers. The response body is written to the given destination.
@@ -267,6 +283,8 @@ class AsyncConnection:
             MaxRedirectsError: If the maximum number of redirects is exceeded.
             UnexpectedResponse: If the server returns a response we didn't expect.
         """
+        assert self.session is not None, "fetch_response_with_host before aenter"
+
         redirect_path = []
         original_host = f"http://{host}:{port}{uri}"
         current_host = original_host
@@ -309,7 +327,9 @@ class AsyncConnection:
 
         raise MaxRedirectsError(original_host, redirect_path)
 
-    async def backup(self, file: io.BytesIO, /, raw: bool = False) -> None:
+    async def backup(
+        self, file: Union[io.BytesIO, AsyncWritableIO], /, raw: bool = False
+    ) -> None:
         """Backup the database to a file.
 
         Args:
@@ -331,14 +351,20 @@ class AsyncConnection:
         resp = await self.fetch_response("GET", path)
         is_coroutine = inspect.iscoroutinefunction(file.write)
         try:
-            while True:
-                chunk = await resp.content.read(1024 * 4)
-                if not chunk:
-                    break
-                if is_coroutine:
-                    await file.write(chunk)
-                else:
-                    file.write(chunk)
+            if is_coroutine:
+                async_file: AsyncWritableIO = typing_cast(AsyncWritableIO, file)
+                while True:
+                    chunk = await resp.content.read(1024 * 4)
+                    if not chunk:
+                        break
+                    await async_file.write(chunk)
+            else:
+                sync_file: io.BytesIO = typing_cast(io.BytesIO, file)
+                while True:
+                    chunk = await resp.content.read(1024 * 4)
+                    if not chunk:
+                        break
+                    sync_file.write(chunk)
         finally:
             await resp.__aexit__(None, None, None)
 

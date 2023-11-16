@@ -2,7 +2,7 @@
 rqlite client.
 """
 import re
-from typing import Tuple
+from typing import Any, Iterable, Tuple
 
 
 WITH_MATCHER = re.compile(
@@ -41,7 +41,7 @@ def get_sql_command(sql_str: str) -> str:
     return sql_str[:whitespace_idx].upper()
 
 
-def clean_nulls(sql_str: str, args: tuple) -> Tuple[str, tuple]:
+def clean_nulls(sql_str: str, args: Iterable[Any]) -> Tuple[str, Iterable[Any]]:
     """Currently RQLite does not handle NULL-arguments. We have to
     do our best to manipulate the SQL-string to replace the appropriate
     ? with NULLs. We will assume there are no non-parameter ?-arguments --
@@ -65,7 +65,7 @@ def clean_nulls(sql_str: str, args: tuple) -> Tuple[str, tuple]:
     result = []
     result_args = []
     current_start_index = 0
-    next_arg_index = 0
+    arg_iter = iter(args)
 
     for i, c in enumerate(sql_str):
         if c == "?":
@@ -79,19 +79,19 @@ def clean_nulls(sql_str: str, args: tuple) -> Tuple[str, tuple]:
                     f"{sql_str=} appears to have a quoted ? - this is not supported with None-arguments"
                 )
 
-            if next_arg_index >= len(args):
+            try:
+                next_arg = next(arg_iter)
+            except StopIteration:
                 raise ValueError(
                     f"{sql_str=} has a ? without a matching argument (args={args})"
                 )
 
-            if args[next_arg_index] is None:
+            if next_arg is None:
                 result.append(sql_str[current_start_index:i])
                 result.append("NULL")
                 current_start_index = i + 1
             else:
-                result_args.append(args[next_arg_index])
-
-            next_arg_index += 1
+                result_args.append(next_arg)
             continue
 
         if is_escaped:
@@ -110,7 +110,11 @@ def clean_nulls(sql_str: str, args: tuple) -> Tuple[str, tuple]:
         if c == "'" or c == '"':
             quote_char = c
 
-    if next_arg_index != len(args):
+    try:
+        next(arg_iter)
+    except StopIteration:
+        pass
+    else:
         raise ValueError(f"{sql_str=} has an argument without a matching ? ({args=})")
 
     result.append(sql_str[current_start_index:])

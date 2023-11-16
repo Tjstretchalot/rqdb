@@ -113,7 +113,7 @@ class ResultItemCursor:
     This only applies to successful SELECT queries.
     """
 
-    def __init__(self, results: List[tuple]):
+    def __init__(self, results: List[list]):
         self.results = results
         """The list of result items returned by the query"""
 
@@ -130,7 +130,7 @@ class ResultItemCursor:
         self.index += 1
         return result
 
-    def fetchmany(self, size: int = None) -> List[List[Any]]:
+    def fetchmany(self, size: Optional[int] = None) -> List[List[Any]]:
         """Returns the next `size` rows in the result set. Returns an empty
         list if there are no more rows.
         """
