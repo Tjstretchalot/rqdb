@@ -25,8 +25,13 @@ import secrets
 import time
 
 
+class SyncWritableIO(Protocol):
+    def write(self, data: bytes, /) -> Any:
+        ...
+
+
 class AsyncWritableIO(Protocol):
-    async def write(self, data: bytes) -> None:
+    async def write(self, data: bytes, /) -> Any:
         ...
 
 
@@ -328,12 +333,12 @@ class AsyncConnection:
         raise MaxRedirectsError(original_host, redirect_path)
 
     async def backup(
-        self, file: Union[io.BytesIO, AsyncWritableIO], /, raw: bool = False
+        self, file: Union[SyncWritableIO, AsyncWritableIO], /, raw: bool = False
     ) -> None:
         """Backup the database to a file.
 
         Args:
-            file (io.BytesIO): The file to write the backup to. May be an asyncio
+            file (file-like): The file to write the backup to. May be an asyncio
                 stream, i.e., file.write may be a coroutine function.
             raw (bool): If true, the backup will be in raw SQL format. If false,
                 the backup will be in the smaller sqlite format
@@ -352,14 +357,14 @@ class AsyncConnection:
         is_coroutine = inspect.iscoroutinefunction(file.write)
         try:
             if is_coroutine:
-                async_file: AsyncWritableIO = typing_cast(AsyncWritableIO, file)
+                async_file = typing_cast(AsyncWritableIO, file)
                 while True:
                     chunk = await resp.content.read(1024 * 4)
                     if not chunk:
                         break
                     await async_file.write(chunk)
             else:
-                sync_file: io.BytesIO = typing_cast(io.BytesIO, file)
+                sync_file = typing_cast(SyncWritableIO, file)
                 while True:
                     chunk = await resp.content.read(1024 * 4)
                     if not chunk:

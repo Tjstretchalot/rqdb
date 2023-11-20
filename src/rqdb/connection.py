@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, Protocol
 from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
@@ -9,9 +9,13 @@ import rqdb.logging
 import random
 import requests
 from rqdb.cursor import Cursor
-import io
 import secrets
 import time
+
+
+class SyncWritableIO(Protocol):
+    def write(self, data: bytes, /) -> Any:
+        ...
 
 
 class Connection:
@@ -288,11 +292,11 @@ class Connection:
 
         raise MaxRedirectsError(original_host, redirect_path)
 
-    def backup(self, file: io.BytesIO, /, raw: bool = False) -> None:
+    def backup(self, file: SyncWritableIO, /, raw: bool = False) -> None:
         """Backup the database to a file.
 
         Args:
-            file (io.BytesIO): The file to write the backup to.
+            file (file-like): The file to write the backup to.
             raw (bool): If true, the backup will be in raw SQL format. If false, the
                 backup will be in the smaller sqlite format.
         """
