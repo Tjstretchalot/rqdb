@@ -85,7 +85,7 @@ class Cursor:
 
         command = get_sql_command(operation)
         cleaned_query, parameters = clean_nulls(operation, parameters)
-        is_read = command == "SELECT"
+        is_read = command in ("SELECT", "EXPLAIN")
         request_id = secrets.token_hex(4)
 
         if is_read:

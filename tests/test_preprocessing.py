@@ -75,6 +75,14 @@ class Test(unittest.TestCase):
             "SELECT",
         )
 
+    def test_with_explain_query_plan(self):
+        self.assertEqual(
+            pp.get_sql_command(
+                "EXPLAIN QUERY PLAN WITH foo(name) AS (VALUES (?)) SELECT * FROM foo"
+            ),
+            "EXPLAIN",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
