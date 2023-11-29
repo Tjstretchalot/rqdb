@@ -106,6 +106,18 @@ class Test(unittest.TestCase):
         finally:
             cursor.execute("DROP TABLE test")
 
+    def test_explain(self):
+        conn = rqdb.connect(HOSTS)
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        try:
+            explained = cursor.explain(
+                "EXPLAIN QUERY PLAN SELECT * FROM test", out="str"
+            )
+            self.assertEqual(explained, "--SCAN test\n")
+        finally:
+            cursor.execute("DROP TABLE test")
+
 
 if __name__ == "__main__":
     unittest.main()

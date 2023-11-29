@@ -1,13 +1,31 @@
-from typing import Any, Iterable, Literal, Optional, Tuple, TYPE_CHECKING
+from typing import (
+    Any,
+    Iterable,
+    Literal,
+    Optional,
+    Tuple,
+    TYPE_CHECKING,
+    Union,
+    overload,
+)
 from rqdb.errors import DBError
+from rqdb.explain import (
+    ExplainQueryPlan,
+    async_write_explain_query_plan,
+    format_explain_query_plan_result,
+    parse_explain_query_plan,
+    print_explain_query_plan_result,
+    write_explain_query_plan,
+)
 from rqdb.logging import log
 from rqdb.result import BulkResult, ResultItem, ResultItemCursor
 from rqdb.preprocessing import get_sql_command, clean_nulls
+import inspect
 import time
 import secrets
 
 if TYPE_CHECKING:
-    from rqdb.async_connection import AsyncConnection
+    from rqdb.async_connection import AsyncConnection, SyncWritableIO, AsyncWritableIO
 
 
 class AsyncCursor:
@@ -377,6 +395,182 @@ class AsyncCursor:
             result.raise_on_error(f"{request_id=}; {operation_and_parameters=}")
 
         return result
+
+    @overload
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: Literal["str"] = "str",
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+        indent: int = 3,
+        include_raw: bool = False,
+    ) -> str:
+        ...
+
+    @overload
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: Literal["print"],
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+        indent: int = 3,
+        include_raw: bool = False,
+    ) -> None:
+        ...
+
+    @overload
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: Literal["plan"],
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+    ) -> ExplainQueryPlan:
+        ...
+
+    @overload
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: "SyncWritableIO",
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+        indent: int = 3,
+        include_raw: bool = False,
+        sync: Optional[Literal[True]] = None,
+    ) -> None:
+        ...
+
+    @overload
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: "AsyncWritableIO",
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+        indent: int = 3,
+        include_raw: bool = False,
+        sync: Optional[Literal[False]] = None,
+    ) -> None:
+        ...
+
+    async def explain(
+        self,
+        operation: str,
+        parameters: Optional[Iterable[Any]] = None,
+        *,
+        out: Union[
+            Literal["str", "print", "plan"], "SyncWritableIO", "AsyncWritableIO"
+        ] = "str",
+        read_consistency: Optional[Literal["none", "weak"]] = None,
+        freshness: Optional[str] = None,
+        indent: int = 3,
+        include_raw: bool = False,
+        sync: Optional[bool] = None,
+    ) -> Union[ExplainQueryPlan, str, None]:
+        """Accepts any query; if it is not prefixed with EXPLAIN then
+        it will be prefixed with EXPLAIN QUERY PLAN. The reuslt will
+        then be parsed into the corresponding tree structure and either
+        written to the designated output or returned.
+
+        This always raises if there is an error, and can only operate
+        at none/weak level. If the read consistency is not specified
+        and the cursor read consistency is strong, weak consistency
+        is used instead.
+
+        Args:
+            operation (str): The query to execute.
+            out (Union[Literal["str", "print", "plan"], SyncWritableIO, AsyncWritableIO]):
+                The output to write the explain query plan to. If "str",
+                return the explain query plan as a string. If "print",
+                print the explain query plan to stdout. If "plan", return
+                the explain query plan as a tree structure. If a writable
+                stream, write the explain query plan to the stream.
+
+                Async vs sync is detected via if the function is coroutine or
+                not unless specified via "sync"
+            parameters (Optional[Iterable[Any]]): The parameters to pass to the query.
+                Parameters must be specified if the operation is a parameterized query,
+                though the values generally only need to be of the correct shape for
+                the appropriate plan to be returned
+            read_consistency ("none", "weak", None): The read consistency to use,
+                None for a random node, weak for the current leader, or None for the
+                cursor default (downgrading strong to weak as query plans are not
+                necessarily deterministic)
+            freshness (Optional[str]): The freshness to use when executing
+                none read consistency queries. If None, use the default freshness
+                for this cursor.
+            indent (int): The number of characters to indent each level when
+                formatting the plan. Ignored for "plan" output.
+            include_raw (bool): If True, include the ids that made each row in the
+                formatted output. Ignored for "plan" output.
+            sync (Optional[bool]): Ignored unless the output is a writable stream.
+                If None, we check if the `write` function is a coroutine function,
+                i.e., is defined via `async def`. If True, we assume it's synchronous,
+                and if False, we assume it's asynchronous. Generally you don't need
+                to specify this unless the stream returns an awaitable but isn't a
+                typical coroutine function.
+
+        Returns:
+            Depends on the value of out. If "str", return the explain query plan as a
+            string. If "print", print the explain query plan to stdout. If "plan",
+            return the explain query plan as a tree structure. If a writable stream,
+            write the explain query plan to the bytes stream and return None
+        """
+        command = get_sql_command(operation)
+        if command != "EXPLAIN":
+            operation = f"EXPLAIN QUERY PLAN {operation}"
+
+        if read_consistency is None:
+            read_consistency = (
+                self.read_consistency if self.read_consistency != "strong" else "weak"
+            )
+
+        result = await self.execute(
+            operation,
+            parameters,
+            read_consistency=read_consistency,
+            freshness=freshness,
+        )
+        if out == "plan":
+            return parse_explain_query_plan(result)
+        elif out == "str":
+            return format_explain_query_plan_result(
+                result, indent=indent, include_raw=include_raw
+            )
+        elif out == "print":
+            print_explain_query_plan_result(
+                result, indent=indent, include_raw=include_raw
+            )
+            return
+        else:
+            assert not isinstance(out, str), f"unrecognized out value: {out}"
+
+            plan = parse_explain_query_plan(result)
+
+            if sync is False or (
+                sync is None and inspect.iscoroutinefunction(out.write)
+            ):
+                await async_write_explain_query_plan(
+                    plan, out, indent=indent, include_raw=include_raw
+                )
+            else:
+                write_explain_query_plan(
+                    plan, out, indent=indent, include_raw=include_raw
+                )
+            return
 
     def fetchone(self) -> Optional[list]:
         """Fetches the next row from the cursor. If there are no more rows,

@@ -132,6 +132,21 @@ class Test(unittest.TestCase):
             finally:
                 await cursor.execute("DROP TABLE test")
 
+    @async_test
+    async def test_explain(self):
+        async with rqdb.connect_async(HOSTS) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
+            try:
+                explained = await cursor.explain(
+                    "EXPLAIN QUERY PLAN SELECT * FROM test", out="str"
+                )
+                self.assertEqual(explained, "--SCAN test\n")
+            finally:
+                await cursor.execute("DROP TABLE test")
+
 
 if __name__ == "__main__":
     unittest.main()

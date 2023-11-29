@@ -74,6 +74,23 @@ async def main():
 
 ## Additional Features
 
+### Explain
+
+Quickly get a formatted query plan from the current leader for a query:
+
+```py
+import rqdb
+
+conn = rqdb.connect(['127.0.0.1:4001'])
+cursor = conn.cursor()
+cursor.execute('CREATE TABLE persons (id INTEGER PRIMARY KEY, uid TEXT UNIQUE NOT NULL, given_name TEXT NOT NULL, family_name TEXT NOT NULL)')
+cursor.explain("SELECT id FROM persons WHERE TRIM(given_name || ' ' || family_name) LIKE ?", ('john d%',), out='print')
+# --SCAN persons
+cursor.execute("CREATE INDEX persons_name_idx ON persons(TRIM(given_name || ' ' || family_name) COLLATE NOCASE)")
+cursor.explain("SELECT id FROM persons WHERE TRIM(given_name || ' ' || family_name) LIKE ?", ('john d%',), out='print')
+# --SEARCH persons USING INDEX persons_name_idx (<expr>>? AND <expr><?)
+```
+
 ### Read Consistency
 
 Selecting read consistency is done at the cursor level, either by passing
@@ -96,7 +113,7 @@ is enabled as described in
 
 ### Nulls
 
-Substituting "NULL" in parametrized queries can be error-prone.  In particular,
+Substituting "NULL" in parametrized queries can be error-prone. In particular,
 sqlite needs null sent in a very particular way, which the rqlite server has
 historically not handled properly.
 
