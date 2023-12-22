@@ -457,7 +457,7 @@ class Cursor:
         include_raw: bool = False,
     ) -> Union[ExplainQueryPlan, str, None]:
         """Accepts any query; if it is not prefixed with EXPLAIN then
-        it will be prefixed with EXPLAIN QUERY PLAN. The reuslt will
+        it will be prefixed with EXPLAIN QUERY PLAN. The result will
         then be parsed into the corresponding tree structure and either
         written to the designated output or returned.
 
