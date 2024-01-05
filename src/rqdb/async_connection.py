@@ -456,7 +456,7 @@ class AsyncConnection:
         try:
             response = await self.session.request(
                 "POST",
-                f"http://{host}:{port}/db/query?level=weak",
+                f"http://{host}:{port}/db/query?level=weak&redirect",
                 json=[["SELECT 1"]],
                 headers={"Content-Type": "application/json; charset=UTF-8"},
                 timeout=aiohttp.ClientTimeout(

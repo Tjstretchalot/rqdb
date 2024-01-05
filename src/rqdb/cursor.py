@@ -126,6 +126,8 @@ class Cursor:
             path = f"/db/query?level={read_consistency}"
             if read_consistency == "none":
                 path += f"&freshness={freshness}"
+            else:
+                path += "&redirect"
 
             request_started_at = time.perf_counter()
             response = self.connection.fetch_response(
