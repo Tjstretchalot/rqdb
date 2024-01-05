@@ -108,6 +108,12 @@ class Test(unittest.TestCase):
                 await cursor.execute("DROP TABLE test")
 
     @async_test
+    async def test_discover_leader(self):
+        async with rqdb.connect_async(["127.0.0.1:1234", *HOSTS]) as conn:
+            leader = await conn.discover_leader()
+            self.assertIn(f"{leader[0]}:{leader[1]}", HOSTS)
+
+    @async_test
     async def test_backup(self):
         async with rqdb.connect_async(HOSTS) as conn:
             cursor = conn.cursor(read_consistency="strong")

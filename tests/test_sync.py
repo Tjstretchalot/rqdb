@@ -84,6 +84,16 @@ class Test(unittest.TestCase):
         finally:
             cursor.execute("DROP TABLE test")
 
+    def test_discover_leader(self):
+        conn = rqdb.connect(
+            ["127.0.0.1:1234", *HOSTS],
+            log=rqdb.LogConfig(
+                connect_timeout={"enabled": True, "level": logging.DEBUG}
+            ),
+        )
+        leader = conn.discover_leader()
+        self.assertIn(f"{leader[0]}:{leader[1]}", HOSTS)
+
     def test_backup(self):
         conn = rqdb.connect(HOSTS)
         cursor = conn.cursor(read_consistency="strong")

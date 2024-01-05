@@ -1,4 +1,15 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, Protocol
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+    Protocol,
+)
 from rqdb.errors import (
     ConnectError,
     MaxAttemptsError,
@@ -11,11 +22,15 @@ import requests
 from rqdb.cursor import Cursor
 import secrets
 import time
+import urllib.parse
 
 
 class SyncWritableIO(Protocol):
     def write(self, data: bytes, /) -> Any:
         ...
+
+
+T = TypeVar("T")
 
 
 class Connection:
@@ -120,6 +135,80 @@ class Connection:
             freshness = self.freshness
         return Cursor(self, read_consistency, freshness)
 
+    def try_hosts(
+        self,
+        attempt_host: Callable[
+            [Tuple[str, int], List[Tuple[str, Exception]]], Optional[T]
+        ],
+        /,
+        *,
+        initial_host: Optional[Tuple[str, int]] = None,
+    ) -> T:
+        """Given a function like
+
+        ```py
+        def attempt_host(host: Tuple[str, int], node_path: List[Tuple[str, Exception]]) -> Optional[str]:
+            try:
+                # do something with the host
+                return 'result'
+            except Exception as e: # only catch exceptions that should continue to the next host
+                node_path.append((host, e))
+                return None
+        ```
+
+        This will call `attempt_host` on each host in the connection in a random
+        order until a non-None value is returned or the maximum number of attempts
+        per host is reached.
+
+        Args:
+            attempt_host: The function to call on each host. It should return None
+                if the host failed but we should continue to the next host, or a
+                non-None value if the host succeeded. It should raise an exception if
+                the host failed and we should not continue to the next host.
+            initial_host: The host to try first. If None, a random host will be chosen.
+                This does not need to be a host in self.hosts, but if it is not, it
+                will not be included in the count for the maximum number of attempts
+        Raises:
+            MaxAttemptsError: If the maximum number of attempts is reached before
+                we get a successful response.
+            Exception: any errors raised by `attempt_host`
+        """
+        node_path: List[Tuple[str, Exception]] = []
+
+        first_node_idx: Optional[int] = None
+        if initial_host is not None:
+            try:
+                first_node_idx = self.hosts.index(initial_host)
+            except ValueError:
+                if resp := attempt_host(initial_host, node_path):
+                    return resp
+
+        if first_node_idx is None:
+            first_node_idx = random.randrange(0, len(self.hosts))
+
+        if resp := attempt_host(self.hosts[first_node_idx], node_path):
+            return resp
+
+        remaining_nodes = [
+            h for idx, h in enumerate(self.hosts) if idx != first_node_idx
+        ]
+        random.shuffle(remaining_nodes)
+        node_ordering = [self.hosts[first_node_idx]] + remaining_nodes
+        index = 0
+        attempt = 1
+
+        while index < len(self.hosts) or attempt < self.max_attempts_per_host:
+            if index + 1 < len(self.hosts):
+                index += 1
+            else:
+                index = 0
+                attempt += 1
+
+            if resp := attempt_host(node_ordering[index], node_path):
+                return resp
+
+        raise MaxAttemptsError(node_path)
+
     def fetch_response(
         self,
         method: Literal["GET", "POST"],
@@ -127,6 +216,7 @@ class Connection:
         json: Any = None,
         headers: Optional[Dict[str, Any]] = None,
         stream: bool = False,
+        initial_host: Optional[Tuple[str, int]] = None,
     ) -> requests.Response:
         """Fetches a response from the server by requesting it from a random node. If
         a connection error occurs, this method will retry the request on a different
@@ -138,6 +228,8 @@ class Connection:
             json (dict): The json data to send with the request.
             headers (dict): The headers to send with the request.
             stream (bool): If True, the response will be streamed.
+            initial_host (Optional[Tuple[str, int]]): The host to try first. If None,
+                a random host will be chosen.
 
         Returns:
             requests.Response: If a successful response is received, it is returned.
@@ -148,9 +240,10 @@ class Connection:
             UnexpectedResponse: If one of the rqlite nodes returns a response
                 we didn't expect
         """
-        node_path: List[Tuple[str, Exception]] = []
 
-        def attempt_host(host: Tuple[str, int]) -> Optional[requests.Response]:
+        def attempt_host(
+            host: Tuple[str, int], node_path: List[Tuple[str, Exception]]
+        ) -> Optional[requests.Response]:
             try:
                 return self.fetch_response_with_host(
                     *host, method, uri, json, headers, stream
@@ -195,29 +288,7 @@ class Connection:
                 )
                 raise
 
-        first_node_idx = random.randrange(0, len(self.hosts))
-        if resp := attempt_host(self.hosts[first_node_idx]):
-            return resp
-
-        remaining_nodes = [
-            h for idx, h in enumerate(self.hosts) if idx != first_node_idx
-        ]
-        random.shuffle(remaining_nodes)
-        node_ordering = [self.hosts[first_node_idx]] + remaining_nodes
-        index = 0
-        attempt = 1
-
-        while index < len(self.hosts) or attempt < self.max_attempts_per_host:
-            if index + 1 < len(self.hosts):
-                index += 1
-            else:
-                index = 0
-                attempt += 1
-
-            if resp := attempt_host(node_ordering[index]):
-                return resp
-
-        raise MaxAttemptsError(node_path)
+        return self.try_hosts(attempt_host, initial_host=initial_host)
 
     def fetch_response_with_host(
         self,
@@ -292,6 +363,99 @@ class Connection:
 
         raise MaxRedirectsError(original_host, redirect_path)
 
+    def discover_leader(self) -> Tuple[str, int]:
+        """Discovers the current leader for the cluster
+
+        Returns:
+            A tuple of (leader_host, leader_port)
+
+        Raises:
+            MaxAttemptsError: If the maximum number of attempts is reached before
+                we get a successful response.
+            UnexpectedResponse: If one of the rqlite nodes returns a response
+                we didn't expect
+        """
+
+        def attempt_host(
+            host: Tuple[str, int], node_path: List[Tuple[str, Exception]]
+        ) -> Optional[Tuple[str, int]]:
+            try:
+                return self.discover_leader_with_host(*host)
+            except ConnectError as e:
+
+                def msg_supplier(max_length: Optional[int]) -> str:
+                    str_error = str(e)
+                    if max_length is not None and len(str_error) > max_length:
+                        str_error = str_error[:max_length] + "..."
+
+                    return f"Failed to connect to node {e.host} - {str_error}"
+
+                rqdb.logging.log(
+                    self.log_config.connect_timeout, msg_supplier, exc_info=True
+                )
+                node_path.append((e.host, e))
+            except UnexpectedResponse as e:
+
+                def msg_supplier(max_length: Optional[int]) -> str:
+                    str_error = str(e)
+                    if max_length is not None and len(str_error) > max_length:
+                        str_error = str_error[:max_length] + "..."
+
+                    return f"Unexpected response from node {e.host}: {str_error}"
+
+                rqdb.logging.log(
+                    self.log_config.non_ok_response, msg_supplier, exc_info=True
+                )
+                raise
+
+        return self.try_hosts(attempt_host)
+
+    def discover_leader_with_host(self, host: str, port: int) -> Tuple[str, int]:
+        """Uses the given node in the cluster to discover the current leader
+        for the cluster.
+
+        Returns:
+            A tuple of (leader_host, leader_port)
+
+        Raises:
+            ConnectTimeout: If the connection times out.
+            UnexpectedResponse: If the server returns a response we didn't expect.
+        """
+        response = None
+        try:
+            response = requests.request(
+                "POST",
+                f"http://{host}:{port}/db/query?level=weak",
+                json=[["SELECT 1"]],
+                headers={"Content-Type": "application/json; charset=UTF-8"},
+                timeout=self.timeout,
+                allow_redirects=False,
+            )
+
+            if response.is_redirect:
+                redirected_to = response.headers["Location"]
+                parsed_url = urllib.parse.urlparse(redirected_to)
+                return parse_host(
+                    parsed_url.netloc,
+                    default_port=443 if parsed_url.scheme == "https" else 80,
+                )
+
+            if response.status_code < 200 or response.status_code > 299:
+                raise UnexpectedResponse(
+                    host,
+                    f"Unexpected response from {host}:{port}: {response.status_code} {response.reason}",
+                )
+
+            return (host, port)
+        except requests.exceptions.ConnectTimeout:
+            raise ConnectError(
+                f"Connection to {host}:{port} timed out", f"{host}:{port}"
+            )
+        except requests.exceptions.ConnectionError:
+            raise ConnectError(
+                f"Connection to {host}:{port} was refused", f"{host}:{port}"
+            )
+
     def backup(self, file: SyncWritableIO, /, raw: bool = False) -> None:
         """Backup the database to a file.
 
@@ -306,10 +470,18 @@ class Connection:
             lambda _: f"  [RQLITE BACKUP {{{request_id}}}] raw={raw}",
         )
         request_started_at = time.perf_counter()
+        # It is much faster for us to discover the leader and fetch the backup
+        # from the leader right now: https://github.com/rqlite/rqlite/issues/1551
+        leader = self.discover_leader()
+
         if raw:
-            resp = self.fetch_response("GET", "/db/backup?fmt=sql", stream=True)
+            resp = self.fetch_response(
+                "GET", "/db/backup?fmt=sql", stream=True, initial_host=leader
+            )
         else:
-            resp = self.fetch_response("GET", "/db/backup", stream=True)
+            resp = self.fetch_response(
+                "GET", "/db/backup", stream=True, initial_host=leader
+            )
 
         for chunk in resp.iter_content(chunk_size=4096):
             file.write(chunk)
@@ -322,11 +494,14 @@ class Connection:
         )
 
 
-def parse_host(host: str) -> Tuple[str, int]:
+def parse_host(host: str, /, *, default_port: int = 4001) -> Tuple[str, int]:
     """Parses a host:port pair into an ip address and port.
 
     Args:
         host (str): A host:port pair, or just a host
+        default_port (int): the port to assume if not specified; for configuration,
+            this is 4001, for loading from the Location header, this depends on the
+            protocol
 
     Returns:
         A tuple of (ip, port)
@@ -346,7 +521,7 @@ def parse_host(host: str) -> Tuple[str, int]:
         )
 
     if num_colons == 0:
-        return host, 4001
+        return host, default_port
 
     hostname, port_str = host.split(":")
     return hostname, int(port_str)
