@@ -153,6 +153,50 @@ class Test(unittest.TestCase):
             finally:
                 await cursor.execute("DROP TABLE test")
 
+    @async_test
+    async def test_unified2(self):
+        async with rqdb.connect_async(HOSTS) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            response = await cursor.executeunified2(
+                (
+                    "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+                    "INSERT INTO test (value) VALUES (?), (?)",
+                    "SELECT value FROM test ORDER BY id DESC",
+                    "DROP TABLE test",
+                ),
+                (
+                    [],
+                    ["hello", "world"],
+                    [],
+                    [],
+                ),
+            )
+            self.assertEqual(len(response), 4)
+            self.assertEqual(response[1].rows_affected, 2)
+            self.assertEqual(response[2].results, [["world"], ["hello"]])
+
+    @async_test
+    async def test_unified3(self):
+        async with rqdb.connect_async(HOSTS) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            response = await cursor.executeunified3(
+                (
+                    ("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", []),
+                    (
+                        "INSERT INTO test (value) VALUES (?), (?)",
+                        ["hello", "world"],
+                    ),
+                    (
+                        "SELECT value FROM test ORDER BY id DESC",
+                        [],
+                    ),
+                    ("DROP TABLE test", []),
+                ),
+            )
+            self.assertEqual(len(response), 4)
+            self.assertEqual(response[1].rows_affected, 2)
+            self.assertEqual(response[2].results, [["world"], ["hello"]])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -212,40 +212,18 @@ class AsyncCursor:
 
         return result
 
-    async def executemany2(
+    async def _executemany2(
         self,
+        base_path: str,
         operations: Iterable[str],
         seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
     ) -> BulkResult:
-        """Executes multiple operations within a single request and, by default, within
-        a transaction.
-
-        Unlike the standard DB-API executemany(), this method accepts different
-        operations and parameters for each operation.
-
-        Regardless of what type of operations are passed in, they will executed
-        as if they are updates, i.e., no result rows will be returned.
-
-        Args:
-            operations (iterable[str]): The operations to execute.
-            seq_of_parameters (iterable[iterable[Any]]): The parameters to pass to each operation.
-            transaction (bool): If True, execute the operations within a transaction.
-            raise_on_error (bool): If True, raise an error if any of the operations fail. If
-                False, you can check the result item's error property to see if the
-                operation failed.
-
-        Returns:
-            BulkResult: The result of the query.
-
-        Raises:
-            ValueError: If the number of operations and parameters do not match.
-        """
         if seq_of_parameters is None:
             seq_of_parameters = tuple(tuple() for _ in operations)
 
-        path = "/db/execute"
+        path = base_path
         if transaction:
             path += "?transaction"
 
@@ -320,9 +298,10 @@ class AsyncCursor:
 
         return result
 
-    async def executemany3(
+    async def executemany2(
         self,
-        operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
+        operations: Iterable[str],
+        seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
     ) -> BulkResult:
@@ -336,8 +315,8 @@ class AsyncCursor:
         as if they are updates, i.e., no result rows will be returned.
 
         Args:
-            operations_and_parameters (Tuple[Tuple[str, Tuple[Any]]]):
-                The operations and corresponding parameters to execute.
+            operations (iterable[str]): The operations to execute.
+            seq_of_parameters (iterable[iterable[Any]]): The parameters to pass to each operation.
             transaction (bool): If True, execute the operations within a transaction.
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
@@ -349,7 +328,18 @@ class AsyncCursor:
         Raises:
             ValueError: If the number of operations and parameters do not match.
         """
-        path = "/db/execute"
+        return await self._executemany2(
+            "/db/execute", operations, seq_of_parameters, transaction, raise_on_error
+        )
+
+    async def _executemany3(
+        self,
+        base_path: str,
+        operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
+        transaction: bool = True,
+        raise_on_error: bool = True,
+    ) -> BulkResult:
+        path = base_path
         if transaction:
             path += "?transaction"
 
@@ -397,6 +387,90 @@ class AsyncCursor:
             result.raise_on_error(f"{request_id=}; {operation_and_parameters=}")
 
         return result
+
+    async def executemany3(
+        self,
+        operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
+        transaction: bool = True,
+        raise_on_error: bool = True,
+    ) -> BulkResult:
+        """Executes multiple operations within a single request and, by default, within
+        a transaction.
+
+        Unlike the standard DB-API executemany(), this method accepts different
+        operations and parameters for each operation.
+
+        Regardless of what type of operations are passed in, they will executed
+        as if they are updates, i.e., no result rows will be returned.
+
+        Args:
+            operations_and_parameters (Tuple[Tuple[str, Tuple[Any]]]):
+                The operations and corresponding parameters to execute.
+            transaction (bool): If True, execute the operations within a transaction.
+            raise_on_error (bool): If True, raise an error if any of the operations fail. If
+                False, you can check the result item's error property to see if the
+                operation failed.
+
+        Returns:
+            BulkResult: The result of the query.
+
+        Raises:
+            ValueError: If the number of operations and parameters do not match.
+        """
+        return await self._executemany3(
+            "/db/execute", operation_and_parameters, transaction, raise_on_error
+        )
+
+    async def executeunified2(
+        self,
+        operations: Iterable[str],
+        seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
+        transaction: bool = True,
+        raise_on_error: bool = True,
+    ) -> BulkResult:
+        """Equivalent to executemany2(), except adds support for queries. Be
+        aware that this will interpret control statements as queries, meaning if you
+        have all readonly queries with control statements it will be executed using
+        the read consistency. This may or may not be desirable. Use `strong` read
+        consistency if the queries should be executed within the raft log regardless
+        of the result of `sqlite3_stmt_readonly()`.
+
+        Args:
+            operations (Iterable[str]): The operations to execute.
+            seq_of_parameters (Iterable[Iterable[Any]]): The parameters to pass to each option.
+            transaction (bool): If True, execute the operations within a transaction.
+            raise_on_error (bool): If True, raise an error if any of the operations fail. If
+                False, you can check the result item's error property to see if the
+                operation failed.
+        """
+        return await self._executemany2(
+            "/db/request", operations, seq_of_parameters, transaction, raise_on_error
+        )
+
+    async def executeunified3(
+        self,
+        operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
+        transaction: bool = True,
+        raise_on_error: bool = True,
+    ) -> BulkResult:
+        """Equivalent to executemany3(), except adds support for queries. Be
+        aware that this will interpret control statements as queries, meaning if you
+        have all readonly queries with control statements it will be executed using
+        the read consistency. This may or may not be desirable. Use `strong` read
+        consistency if the queries should be executed within the raft log regardless
+        of the result of `sqlite3_stmt_readonly()`.
+
+        Args:
+            operations_and_parameters (Tuple[Tuple[str, Tuple[Any]]]):
+                The operations and corresponding parameters to execute.
+            transaction (bool): If True, execute the operations within a transaction.
+            raise_on_error (bool): If True, raise an error if any of the operations fail. If
+                False, you can check the result item's error property to see if the
+                operation failed.
+        """
+        return await self._executemany3(
+            "/db/request", operation_and_parameters, transaction, raise_on_error
+        )
 
     @overload
     async def explain(
