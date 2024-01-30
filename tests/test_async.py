@@ -6,7 +6,7 @@ import asyncio
 import io
 
 
-HOSTS = ["127.0.0.1:4001"]
+HOSTS = ["127.0.0.1:4001", "127.0.0.1:4003", "127.0.0.1:4005"]
 
 
 def async_test(func):
@@ -196,6 +196,167 @@ class Test(unittest.TestCase):
             self.assertEqual(len(response), 4)
             self.assertEqual(response[1].rows_affected, 2)
             self.assertEqual(response[2].results, [["world"], ["hello"]])
+
+    @async_test
+    async def test_slow_query_execute(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
+            await cursor.execute("DROP TABLE test")
+            self.assertEqual(was_slow_ctr, 2)
+
+    @async_test
+    async def test_slow_query_executemany2(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.executemany2(
+                (
+                    "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+                    "DROP TABLE test",
+                )
+            )
+            self.assertEqual(was_slow_ctr, 1)
+
+    @async_test
+    async def test_slow_query_executemany3(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.executemany3(
+                (
+                    ("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", []),
+                    ("DROP TABLE test", []),
+                )
+            )
+            self.assertEqual(was_slow_ctr, 1)
+
+    @async_test
+    async def test_slow_query_executeunified2(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.executeunified2(
+                (
+                    "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+                    "SELECT * FROM test",
+                    "DROP TABLE test",
+                )
+            )
+            self.assertEqual(was_slow_ctr, 1)
+
+    @async_test
+    async def test_slow_query_executeunified3(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.executeunified3(
+                (
+                    ("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", []),
+                    ("SELECT * FROM test", []),
+                    ("DROP TABLE test", []),
+                )
+            )
+            self.assertEqual(was_slow_ctr, 1)
+
+    @async_test
+    async def test_slow_query_explain(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        async with rqdb.connect_async(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        ) as conn:
+            cursor = conn.cursor(read_consistency="strong")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
+            await cursor.explain("SELECT * FROM test")
+            await cursor.execute("DROP TABLE test")
+            self.assertEqual(was_slow_ctr, 3)
 
 
 if __name__ == "__main__":

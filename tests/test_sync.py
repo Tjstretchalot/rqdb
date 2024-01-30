@@ -5,7 +5,7 @@ import logging
 import io
 
 
-HOSTS = ["127.0.0.1:4001"]
+HOSTS = ["127.0.0.1:4001", "127.0.0.1:4003", "127.0.0.1:4005"]
 
 
 class Test(unittest.TestCase):
@@ -169,6 +169,157 @@ class Test(unittest.TestCase):
         self.assertEqual(len(response), 4)
         self.assertEqual(response[1].rows_affected, 2)
         self.assertEqual(response[2].results, [["world"], ["hello"]])
+
+    def test_slow_query_execute(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        cursor.execute("DROP TABLE test")
+        self.assertEqual(was_slow_ctr, 2)
+
+    def test_slow_query_executemany2(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.executemany2(
+            (
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+                "DROP TABLE test",
+            )
+        )
+        self.assertEqual(was_slow_ctr, 1)
+
+    def test_slow_query_executemany3(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.executemany3(
+            (
+                ("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", []),
+                ("DROP TABLE test", []),
+            )
+        )
+        self.assertEqual(was_slow_ctr, 1)
+
+    def test_slow_query_executeunified2(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.executeunified2(
+            (
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
+                "SELECT * FROM test",
+                "DROP TABLE test",
+            )
+        )
+        self.assertEqual(was_slow_ctr, 1)
+
+    def test_slow_query_executeunified3(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.executeunified3(
+            (
+                ("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", []),
+                ("SELECT * FROM test", []),
+                ("DROP TABLE test", []),
+            )
+        )
+        self.assertEqual(was_slow_ctr, 1)
+
+    def test_slow_query_explain(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(*args, **kwargs):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor(read_consistency="strong")
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        cursor.explain("SELECT * FROM test")
+        cursor.execute("DROP TABLE test")
+        self.assertEqual(was_slow_ctr, 3)
 
 
 if __name__ == "__main__":

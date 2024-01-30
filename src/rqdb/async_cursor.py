@@ -1,6 +1,9 @@
+from functools import partial
 from typing import (
     Any,
+    Callable,
     Iterable,
+    List,
     Literal,
     Optional,
     Tuple,
@@ -17,9 +20,13 @@ from rqdb.explain import (
     print_explain_query_plan_result,
     write_explain_query_plan,
 )
-from rqdb.logging import log
+from rqdb.logging import QueryInfoLazy, QueryInfoRequestType, log
 from rqdb.result import BulkResult, ResultItem, ResultItemCursor
-from rqdb.preprocessing import get_sql_command, clean_nulls
+from rqdb.preprocessing import (
+    determine_unified_request_type,
+    get_sql_command,
+    clean_nulls,
+)
 import inspect
 import time
 import secrets
@@ -137,6 +144,13 @@ class AsyncCursor:
                 path,
                 json=[[cleaned_query, *parameters]],
                 headers={"Content-Type": "application/json; charset=UTF-8"},
+                query_info=QueryInfoLazy(
+                    operations=[operation],
+                    params=[parameters],
+                    request_type="execute-read",
+                    consistency=read_consistency,
+                    freshness=freshness,
+                ),
             )
         else:
 
@@ -159,6 +173,13 @@ class AsyncCursor:
                 "/db/execute",
                 json=[[cleaned_query, *parameters]],
                 headers={"Content-Type": "application/json; charset=UTF-8"},
+                query_info=QueryInfoLazy(
+                    operations=[operation],
+                    params=[parameters],
+                    request_type="execute-write",
+                    consistency=read_consistency,
+                    freshness=freshness,
+                ),
             )
 
         payload: dict = await response.json()
@@ -216,16 +237,37 @@ class AsyncCursor:
         self,
         base_path: str,
         operations: Iterable[str],
+        /,
+        *,
         seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
+        request_type: Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]],
+        read_consistency: Optional[str],
+        freshness: Optional[str],
     ) -> BulkResult:
+        if read_consistency is None:
+            read_consistency = self.read_consistency
+
+        if freshness is None:
+            freshness = self.freshness
+
         if seq_of_parameters is None:
             seq_of_parameters = tuple(tuple() for _ in operations)
 
-        path = base_path
+        qargs: List[str] = []
+
         if transaction:
-            path += "?transaction"
+            qargs.append("transaction")
+
+        if request_type != "executemany":
+            qargs.append("level=" + read_consistency)
+            if read_consistency == "none":
+                qargs.append("freshness=" + freshness)
+
+        qargs.append("redirect")
+
+        path = base_path + "?" + "&".join(qargs)
 
         cleaned_request = []
 
@@ -275,6 +317,13 @@ class AsyncCursor:
             path,
             json=cleaned_request,
             headers={"Content-Type": "application/json; charset=UTF-8"},
+            query_info=QueryInfoLazy(
+                operations=operations,
+                params=seq_of_parameters,
+                request_type=request_type,
+                consistency="strong",
+                freshness="",
+            ),
         )
         payload: dict = await response.json()
         await response.__aexit__(None, None, None)
@@ -329,19 +378,46 @@ class AsyncCursor:
             ValueError: If the number of operations and parameters do not match.
         """
         return await self._executemany2(
-            "/db/execute", operations, seq_of_parameters, transaction, raise_on_error
+            "/db/execute",
+            operations,
+            seq_of_parameters=seq_of_parameters,
+            transaction=transaction,
+            raise_on_error=raise_on_error,
+            request_type="executemany",
+            read_consistency="strong",
+            freshness="",
         )
 
     async def _executemany3(
         self,
         base_path: str,
         operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
+        /,
+        *,
         transaction: bool = True,
         raise_on_error: bool = True,
+        request_type: Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]],
+        read_consistency: Optional[Literal["none", "weak", "strong"]],
+        freshness: Optional[str],
     ) -> BulkResult:
-        path = base_path
+        if read_consistency is None:
+            read_consistency = self.read_consistency
+
+        if freshness is None:
+            freshness = self.freshness
+
+        qargs: List[str] = []
         if transaction:
-            path += "?transaction"
+            qargs.append("transaction")
+
+        if request_type != "executemany":
+            qargs.append("level=" + read_consistency)
+            if read_consistency == "none":
+                qargs.append("freshness=" + freshness)
+
+        qargs.append("redirect")
+
+        path = base_path + "?" + "&".join(qargs)
 
         cleaned_request = []
         for operation, parameters in operation_and_parameters:
@@ -365,6 +441,17 @@ class AsyncCursor:
             path,
             json=cleaned_request,
             headers={"Content-Type": "application/json; charset=UTF-8"},
+            query_info=QueryInfoLazy(
+                operations=lambda: [
+                    operation for operation, _ in operation_and_parameters
+                ],
+                params=lambda: [
+                    parameters for _, parameters in operation_and_parameters
+                ],
+                request_type=request_type,
+                consistency=read_consistency,
+                freshness=freshness,
+            ),
         )
         payload: dict = await response.json()
         await response.__aexit__(None, None, None)
@@ -418,7 +505,13 @@ class AsyncCursor:
             ValueError: If the number of operations and parameters do not match.
         """
         return await self._executemany3(
-            "/db/execute", operation_and_parameters, transaction, raise_on_error
+            "/db/execute",
+            operation_and_parameters,
+            transaction=transaction,
+            raise_on_error=raise_on_error,
+            request_type="executemany",
+            read_consistency="strong",
+            freshness="",
         )
 
     async def executeunified2(
@@ -427,6 +520,8 @@ class AsyncCursor:
         seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
+        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        freshness: Optional[str] = None,
     ) -> BulkResult:
         """Equivalent to executemany2(), except adds support for queries. Be
         aware that this will interpret control statements as queries, meaning if you
@@ -442,9 +537,21 @@ class AsyncCursor:
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
                 operation failed.
+            read_consistency (Optional[Literal["none", "weak", "strong"]]):
+                The read consistency to use when executing the query. If None,
+                use the default read consistency for this cursor. Ignored if any of
+                the operations write according to the sqlite3_stmt_readonly() function.
+            freshness (Optional[str]): The freshness to use when executing
         """
         return await self._executemany2(
-            "/db/request", operations, seq_of_parameters, transaction, raise_on_error
+            "/db/request",
+            operations,
+            seq_of_parameters=seq_of_parameters,
+            transaction=transaction,
+            raise_on_error=raise_on_error,
+            request_type=partial(determine_unified_request_type, operations),
+            read_consistency=read_consistency,
+            freshness=freshness,
         )
 
     async def executeunified3(
@@ -452,6 +559,8 @@ class AsyncCursor:
         operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
         transaction: bool = True,
         raise_on_error: bool = True,
+        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        freshness: Optional[str] = None,
     ) -> BulkResult:
         """Equivalent to executemany3(), except adds support for queries. Be
         aware that this will interpret control statements as queries, meaning if you
@@ -467,9 +576,22 @@ class AsyncCursor:
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
                 operation failed.
+            read_consistency (Optional[Literal["none", "weak", "strong"]]):
+                The read consistency to use when executing the query. If None,
+                use the default read consistency for this cursor. Ignored if any of
+                the operations write according to the sqlite3_stmt_readonly() function.
+            freshness (Optional[str]): The freshness to use when executing
         """
         return await self._executemany3(
-            "/db/request", operation_and_parameters, transaction, raise_on_error
+            "/db/request",
+            operation_and_parameters,
+            transaction=transaction,
+            raise_on_error=raise_on_error,
+            request_type=lambda: determine_unified_request_type(
+                [op for (op, _) in operation_and_parameters]
+            ),
+            read_consistency=read_consistency,
+            freshness=freshness,
         )
 
     @overload

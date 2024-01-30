@@ -2,7 +2,7 @@
 rqlite client.
 """
 import re
-from typing import Any, Iterable, Tuple
+from typing import Any, Iterable, Literal, Tuple
 
 
 WITH_MATCHER = re.compile(
@@ -119,3 +119,17 @@ def clean_nulls(sql_str: str, args: Iterable[Any]) -> Tuple[str, Iterable[Any]]:
 
     result.append(sql_str[current_start_index:])
     return "".join(result), tuple(result_args)
+
+
+def determine_unified_request_type(
+    sql_strs: Iterable[str],
+) -> Literal["executeunified-readonly", "executeunified-write"]:
+    """Determines the request type for a unified request, which consists of
+    multiple sql commands that mix read and write operations. This is a best-effort
+    function to approximate sqlite3_stmt_readonly()
+    """
+    for sql_str in sql_strs:
+        cmd = get_sql_command(sql_str)
+        if cmd not in ("SELECT", "EXPLAIN"):
+            return "executeunified-write"
+    return "executeunified-readonly"

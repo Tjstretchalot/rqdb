@@ -9,6 +9,7 @@ from typing import (
     TypeVar,
     Union,
     Protocol,
+    cast,
 )
 from rqdb.errors import (
     ConnectError,
@@ -217,6 +218,7 @@ class Connection:
         headers: Optional[Dict[str, Any]] = None,
         stream: bool = False,
         initial_host: Optional[Tuple[str, int]] = None,
+        query_info: Optional[rqdb.logging.QueryInfoLazy] = None,
     ) -> requests.Response:
         """Fetches a response from the server by requesting it from a random node. If
         a connection error occurs, this method will retry the request on a different
@@ -230,6 +232,9 @@ class Connection:
             stream (bool): If True, the response will be streamed.
             initial_host (Optional[Tuple[str, int]]): The host to try first. If None,
                 a random host will be chosen.
+            query_info (Optional[rqdb.logging.QueryInfo]): The query info for slow
+                query logging, or None to disable slow query logging regardless of
+                the log configuration.
 
         Returns:
             requests.Response: If a successful response is received, it is returned.
@@ -245,9 +250,54 @@ class Connection:
             host: Tuple[str, int], node_path: List[Tuple[str, Exception]]
         ) -> Optional[requests.Response]:
             try:
-                return self.fetch_response_with_host(
+                started_at_wall = time.time()
+                started_at_perf = time.perf_counter()
+                result = self.fetch_response_with_host(
                     *host, method, uri, json, headers, stream
                 )
+                request_time_perf = time.perf_counter() - started_at_perf
+                ended_at_wall = time.time()
+
+                if (
+                    query_info is not None
+                    and self.log_config.slow_query is not None
+                    and self.log_config.slow_query.get("enabled", True)
+                ):
+                    config = cast(
+                        rqdb.logging.SlowQueryLogMessageConfig,
+                        self.log_config.slow_query,
+                    )
+                    if request_time_perf >= config.get("threshold_seconds", 5):
+                        config["method"](
+                            rqdb.logging.QueryInfo(
+                                operations=(
+                                    query_info.operations
+                                    if not callable(query_info.operations)
+                                    else query_info.operations()
+                                ),
+                                params=(
+                                    query_info.params
+                                    if not callable(query_info.params)
+                                    else query_info.params()
+                                ),
+                                request_type=(
+                                    query_info.request_type
+                                    if not callable(query_info.request_type)
+                                    else query_info.request_type()
+                                ),
+                                consistency=query_info.consistency,
+                                freshness=query_info.freshness,
+                            ),
+                            duration_seconds=request_time_perf,
+                            host=f"{host[0]}:{host[1]}",
+                            response_size_bytes=int(
+                                result.headers.get("Content-Length", "0")
+                            ),
+                            started_at=started_at_wall,
+                            ended_at=ended_at_wall,
+                        )
+
+                return result
             except ConnectError as e:
 
                 def msg_supplier(max_length: Optional[int]) -> str:

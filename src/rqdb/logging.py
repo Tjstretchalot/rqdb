@@ -1,10 +1,139 @@
-from typing import Any, Callable, Literal, Optional, TypedDict, Union, Protocol
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    Protocol,
+    TYPE_CHECKING,
+)
 import dataclasses
 import logging
+
+if TYPE_CHECKING:
+    from rqdb.result import BulkResult
 
 
 class LogMethod(Protocol):
     def __call__(self, msg: str, *, exc_info: bool = False) -> Any:
+        ...
+
+
+QueryInfoRequestType = Literal[
+    "execute-read",
+    "execute-write",
+    "executemany",
+    "executeunified-readonly",
+    "executeunified-write",
+]
+
+
+@dataclasses.dataclass
+class QueryInfoLazy:
+    """
+    Potentially lazily initialized query information.
+    """
+
+    operations: Union[Iterable[str], Callable[[], Iterable[str]]]
+    """The operations as a list of SQL queries. May be built lazily."""
+    params: Union[Iterable[Iterable[Any]], Callable[[], Iterable[Iterable[Any]]]]
+    """The parameters for each query in operations. May be built lazily."""
+
+    request_type: Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]]
+    """
+    The type of request that was made, may be determined lazily. This is one of
+    - "execute-read": A single SELECT or EXPLAIN query via execute() or explain()
+    - "execute-write": A single non-SELECT query via execute()
+    - "executemany": A single execute_many() request, which is always treated as write
+    - "executeunified-readonly": A single execute_unified() request where all of the
+        queries are SELECT or EXPLAIN
+    - "executeunified-write": A single execute_unified() request where at least one
+        of the queries is not SELECT or EXPLAIN
+    """
+    consistency: Literal["none", "weak", "strong"]
+    """
+    The consistency level that was used for the request. Only matters if the
+    request is a read (execute-read or executeunified-readonly).
+    """
+    freshness: str
+    """
+    The minimum freshness to use, e.g., 5m. Only relevant for read queries at the
+    none consistency level.
+    """
+
+
+@dataclasses.dataclass
+class QueryInfo:
+    """
+    The information about a query as it is passed to the slow query log
+    method, before augmenting information that can only be known when the
+    request is made
+    """
+
+    operations: Iterable[str]
+    """The operations as a list of SQL queries. May be built lazily."""
+    params: Iterable[Iterable[Any]]
+    """The parameters for each query in operations. May be built lazily."""
+
+    request_type: Literal[
+        "execute-read",
+        "execute-write",
+        "executemany",
+        "executeunified-readonly",
+        "executeunified-write",
+    ]
+    """
+    The type of request that was made. This is one of
+    - "execute-read": A single SELECT or EXPLAIN query via execute() or explain()
+    - "execute-write": A single non-SELECT query via execute()
+    - "executemany": A single execute_many() request, which is always treated as write
+    - "executeunified-readonly": A single execute_unified() request where all of the
+        queries are SELECT or EXPLAIN
+    - "executeunified-write": A single execute_unified() request where at least one
+        of the queries is not SELECT or EXPLAIN
+    """
+    consistency: Literal["none", "weak", "strong"]
+    """
+    The consistency level that was used for the request. Only matters if the
+    request is a read (execute-read or executeunified-readonly).
+    """
+    freshness: str
+    """
+    The minimum freshness to use, e.g., 5m. Only relevant for read queries at the
+    none consistency level.
+    """
+
+
+class SlowQueryLogMethod(Protocol):
+    def __call__(
+        self,
+        info: QueryInfo,
+        /,
+        *,
+        duration_seconds: float,
+        host: str,
+        response_size_bytes: int,
+        started_at: float,
+        ended_at: float,
+    ) -> None:
+        """Called to log a slow query. Provided the operations and parameters in the
+        same format as executemany2, then all the relevant context about the query
+        that exceeded the threshold.
+
+        Args:
+            info (QueryInfo): The information about the query.
+            duration_seconds (float): How long it took between us initiating the
+                request and us receiving the response, in seconds
+            host (str): The host that the request was made to.
+            response_size_bytes (int): The size of the response in bytes, as reported by the
+                content-length header. 0 if the content-length header was not present in the
+                response.
+            started_at (float): The time that the request was initiated, in seconds since the epoch.
+            ended_at (float): The time that the response was received, in seconds since the epoch.
+        """
         ...
 
 
@@ -60,6 +189,32 @@ class DisabledMessageConfig(TypedDict):
 
     enabled: Literal[False]
     """See LogMessageConfig"""
+
+
+class SlowQueryLogMessageConfig(TypedDict):
+    """The configuration available for the slow query log message, which
+    is a special case because it's expected that these messages will be
+    sent to a more visible place and formatted in a special way.
+    """
+
+    enabled: bool
+    """True if the message should be logged, False otherwise. If not
+    present, assumed to be True
+    """
+
+    threshold_seconds: float
+    """The threshold in seconds for a query to be considered slow. Can
+    be set to for detailed timing information on every query.
+    """
+
+    method: SlowQueryLogMethod
+    """The function to call to log the message. If not present,
+    then this will be set based on the level of the message.
+    For example, a level of DEBUG implies that the method is
+    effectively logging.debug.
+
+    The method should support "exc_info=True" as a keyword argument.
+    """
 
 
 ForgivingLogMessageConfigT = Union[
@@ -151,6 +306,14 @@ class LogConfig:
     redirects.
     """
 
+    slow_query: Union[
+        SlowQueryLogMessageConfig, DisabledMessageConfig
+    ] = dataclasses.field(default_factory=lambda: DisabledMessageConfig(enabled=False))
+    """Configures the message to log when we get a response from
+    the server, but that response takes longer than a certain
+    threshold to arrive.
+    """
+
     backup_start: ForgivingLogMessageConfigT = dataclasses.field(
         default_factory=lambda: LevelOnlyMessageConfig(enabled=True, level=logging.INFO)
     )
@@ -171,6 +334,7 @@ DISABLED_LOG_CONFIG = LogConfig(
     connect_timeout=DisabledMessageConfig(enabled=False),
     hosts_exhausted=DisabledMessageConfig(enabled=False),
     non_ok_response=DisabledMessageConfig(enabled=False),
+    slow_query=DisabledMessageConfig(enabled=False),
     backup_start=DisabledMessageConfig(enabled=False),
     backup_end=DisabledMessageConfig(enabled=False),
 )
