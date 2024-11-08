@@ -536,12 +536,11 @@ class Cursor:
             self.connection.log_config.write_response,
             msg_supplier_2,
         )
-        
+
         self.connection.process_slow_query_if_slow(response, result)
 
         if raise_on_error:
             result.raise_on_error(f"{request_id=}; {operation_and_parameters=}")
-
 
         return result
 

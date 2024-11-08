@@ -346,7 +346,7 @@ class AsyncCursor:
                 consistency="strong",
                 freshness="",
             ),
-            slow_query_handled_on_success=True
+            slow_query_handled_on_success=True,
         )
         payload: dict = await response.response.json()
         await response.response.__aexit__(None, None, None)
