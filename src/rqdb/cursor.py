@@ -26,6 +26,7 @@ from rqdb.preprocessing import (
     get_sql_command,
     clean_nulls,
 )
+from rqdb.types import ReadConsistency
 import time
 import secrets
 
@@ -39,13 +40,13 @@ class Cursor:
     def __init__(
         self,
         connection: "Connection",
-        read_consistency: Literal["none", "weak", "strong"],
+        read_consistency: ReadConsistency,
         freshness: str,
     ):
         self.connection = connection
         """The underlying connection to the rqlite cluster."""
 
-        self.read_consistency: Literal["none", "weak", "strong"] = read_consistency
+        self.read_consistency: ReadConsistency = read_consistency
         """The read consistency to use when executing queries."""
 
         self.freshness = freshness
@@ -72,7 +73,7 @@ class Cursor:
         operation: str,
         parameters: Optional[Iterable[Any]] = None,
         raise_on_error: bool = True,
-        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        read_consistency: Optional[ReadConsistency] = None,
         freshness: Optional[str] = None,
     ) -> ResultItem:
         """Executes a single query and returns the result. This will also
@@ -85,7 +86,7 @@ class Cursor:
             raise_on_error (bool): If True, raise an error if the query fails. If
                 False, you can check the result item's error property to see if
                 the query failed.
-            read_consistency (Optional[Literal["none", "weak", "strong"]]):
+            read_consistency (Optional[ReadConsistency]):
                 The read consistency to use when executing the query. If None,
                 use the default read consistency for this cursor.
             freshness (Optional[str]): The freshness to use when executing
@@ -130,7 +131,7 @@ class Cursor:
 
             log(self.connection.log_config.read_start, msg_supplier_1)
 
-            path = f"/db/query?level={read_consistency}"
+            path = f"/db/query?level={read_consistency}&timing"
             if read_consistency == "none":
                 path += f"&freshness={freshness}"
             else:
@@ -191,9 +192,11 @@ class Cursor:
             return f"    {{{request_id}}} in {request_time:.3f}s -> {repr(abridged_payload)}"
 
         log(
-            self.connection.log_config.read_response
-            if is_read
-            else self.connection.log_config.write_response,
+            (
+                self.connection.log_config.read_response
+                if is_read
+                else self.connection.log_config.write_response
+            ),
             msg_supplier_3,
         )
 
@@ -240,7 +243,7 @@ class Cursor:
         transaction: bool = True,
         raise_on_error: bool = True,
         request_type: Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]],
-        read_consistency: Optional[str],
+        read_consistency: Optional[ReadConsistency],
         freshness: Optional[str],
     ) -> BulkResult:
         """Executes multiple operations within a single request and, by default, within
@@ -262,7 +265,7 @@ class Cursor:
             request_type (Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]]):
                 The type of request to log. If a callable, it will be called with no
                 arguments to get the request type only if needed for slow query logging
-            read_consistency ("none", "weak", "strong", None): The read consistency to use
+            read_consistency (ReadConsistency, None): The read consistency to use
                 if the request type is not executemany. If None, use the default read
                 consistency for this cursor.
             freshness (Optional[str]): The freshness to use when executing
@@ -425,7 +428,7 @@ class Cursor:
         transaction: bool = True,
         raise_on_error: bool = True,
         request_type: Union[QueryInfoRequestType, Callable[[], QueryInfoRequestType]],
-        read_consistency: Optional[Literal["none", "weak", "strong"]],
+        read_consistency: Optional[ReadConsistency],
         freshness: Optional[str],
     ) -> BulkResult:
         if read_consistency is None:
@@ -547,7 +550,7 @@ class Cursor:
         seq_of_parameters: Optional[Iterable[Iterable[Any]]] = None,
         transaction: bool = True,
         raise_on_error: bool = True,
-        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        read_consistency: Optional[ReadConsistency] = None,
         freshness: Optional[str] = None,
     ) -> BulkResult:
         """Equivalent to executemany2(), except adds support for queries. Be
@@ -564,7 +567,7 @@ class Cursor:
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
                 operation failed.
-            read_consistency (Optional[Literal["none", "weak", "strong"]]):
+            read_consistency (Optional[ReadConsistency]):
                 The read consistency to use when executing the query. If None,
                 use the default read consistency for this cursor. Ignored if any of
                 the operations write according to the sqlite3_stmt_readonly() function.
@@ -586,7 +589,7 @@ class Cursor:
         operation_and_parameters: Iterable[Tuple[str, Iterable[Any]]],
         transaction: bool = True,
         raise_on_error: bool = True,
-        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        read_consistency: Optional[ReadConsistency] = None,
         freshness: Optional[str] = None,
     ) -> BulkResult:
         """Equivalent to executemany3(), except adds support for queries. Be
@@ -603,7 +606,7 @@ class Cursor:
             raise_on_error (bool): If True, raise an error if any of the operations fail. If
                 False, you can check the result item's error property to see if the
                 operation failed.
-            read_consistency (Optional[Literal["none", "weak", "strong"]]):
+            read_consistency (Optional[ReadConsistency]):
                 The read consistency to use when executing the query. If None,
                 use the default read consistency for this cursor. Ignored if any of
                 the operations write according to the sqlite3_stmt_readonly() function.
@@ -708,10 +711,10 @@ class Cursor:
                 Parameters must be specified if the operation is a parameterized query,
                 though the values generally only need to be of the correct shape for
                 the appropriate plan to be returned
-            read_consistency ("none", "weak", None): The read consistency to use,
-                None for a random node, weak for the current leader, or None for the
-                cursor default (downgrading strong to weak as query plans are not
-                necessarily deterministic)
+            read_consistency ("none", "weak", None): The read consistency to
+                use, None for a random node, weak for the current leader, or
+                None for the cursor default (downgrading strong/linearizable to
+                weak as query plans are not necessarily deterministic)
             freshness (Optional[str]): The freshness to use when executing
                 none read consistency queries. If None, use the default freshness
                 for this cursor.
@@ -732,7 +735,10 @@ class Cursor:
 
         if read_consistency is None:
             read_consistency = (
-                self.read_consistency if self.read_consistency != "strong" else "weak"
+                self.read_consistency
+                if self.read_consistency != "strong"
+                and self.read_consistency != "linearizable"
+                else "weak"
             )
 
         result = self.execute(

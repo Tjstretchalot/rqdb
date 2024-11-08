@@ -2,19 +2,15 @@ from typing import (
     Any,
     Callable,
     Iterable,
-    List,
     Literal,
     Optional,
     TypedDict,
     Union,
     Protocol,
-    TYPE_CHECKING,
 )
 import dataclasses
 import logging
-
-if TYPE_CHECKING:
-    from rqdb.result import BulkResult
+from rqdb.types import ReadConsistency
 
 
 class LogMethod(Protocol):
@@ -53,7 +49,7 @@ class QueryInfoLazy:
     - "executeunified-write": A single execute_unified() request where at least one
         of the queries is not SELECT or EXPLAIN
     """
-    consistency: Literal["none", "weak", "strong"]
+    consistency: ReadConsistency
     """
     The consistency level that was used for the request. Only matters if the
     request is a read (execute-read or executeunified-readonly).
@@ -95,7 +91,7 @@ class QueryInfo:
     - "executeunified-write": A single execute_unified() request where at least one
         of the queries is not SELECT or EXPLAIN
     """
-    consistency: Literal["none", "weak", "strong"]
+    consistency: ReadConsistency
     """
     The consistency level that was used for the request. Only matters if the
     request is a read (execute-read or executeunified-readonly).

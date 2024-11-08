@@ -46,6 +46,27 @@ class Test(unittest.TestCase):
                 self.assertEqual(1, cursor.rows_affected)
                 self.assertEqual(1, cursor.last_insert_id)
                 self.assertIsNone(cursor.fetchone())
+                await cursor.execute("SELECT value FROM test")
+                self.assertEqual(cursor.fetchone(), ["hello"])
+                await cursor.execute("DELETE FROM test WHERE id = ?", (1,))
+                self.assertEqual(1, cursor.rows_affected)
+            finally:
+                await cursor.execute("DROP TABLE test")
+
+    @async_test
+    async def test_single_linearizable(self):
+        async with rqdb.connect_async(HOSTS) as conn:
+            cursor = conn.cursor(read_consistency="linearizable")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
+            try:
+                await cursor.execute("INSERT INTO test (value) VALUES (?)", ("hello",))
+                self.assertEqual(1, cursor.rows_affected)
+                self.assertEqual(1, cursor.last_insert_id)
+                self.assertIsNone(cursor.fetchone())
+                await cursor.execute("SELECT value FROM test")
+                self.assertEqual(cursor.fetchone(), ["hello"])
                 await cursor.execute("DELETE FROM test WHERE id = ?", (1,))
                 self.assertEqual(1, cursor.rows_affected)
             finally:

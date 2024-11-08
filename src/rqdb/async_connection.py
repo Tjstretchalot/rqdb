@@ -21,12 +21,12 @@ import random
 import aiohttp
 from rqdb.async_cursor import AsyncCursor
 import sys
-import io
 import inspect
 import secrets
 import time
 import urllib.parse
 from typing import TypeVar
+from rqdb.types import DEFAULT_READ_CONSISTENCY, ReadConsistency
 
 
 class SyncWritableIO(Protocol):
@@ -55,7 +55,7 @@ class AsyncConnection:
         timeout: int = 5,
         max_redirects: int = 2,
         max_attempts_per_host: int = 2,
-        read_consistency: Literal["none", "weak", "strong"] = "weak",
+        read_consistency: ReadConsistency = DEFAULT_READ_CONSISTENCY,
         freshness: str = "5m",
         log: Union[rqdb.logging.LogConfig, bool] = True,
     ):
@@ -112,7 +112,7 @@ class AsyncConnection:
         giving up.
         """
 
-        self.read_consistency: Literal["none", "weak", "strong"] = read_consistency
+        self.read_consistency: ReadConsistency = read_consistency
         """The default read consistency when initializing cursors."""
 
         self.freshness: str = freshness
@@ -139,7 +139,7 @@ class AsyncConnection:
 
     def cursor(
         self,
-        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        read_consistency: Optional[ReadConsistency] = None,
         freshness: Optional[str] = None,
     ) -> "AsyncCursor":
         """Creates a new cursor for this connection.
@@ -163,7 +163,8 @@ class AsyncConnection:
     async def try_hosts(
         self,
         attempt_host: Callable[
-            [Tuple[str, int], List[Tuple[str, Exception]]], Awaitable[Optional[T]]
+            [Tuple[str, int], List[Tuple[str, Exception]]],
+            Awaitable[Optional[T]],
         ],
         /,
         *,

@@ -21,6 +21,7 @@ import rqdb.logging
 import random
 import requests
 from rqdb.cursor import Cursor
+from rqdb.types import ReadConsistency, DEFAULT_READ_CONSISTENCY
 import secrets
 import time
 import urllib.parse
@@ -47,7 +48,7 @@ class Connection:
         timeout: int = 5,
         max_redirects: int = 2,
         max_attempts_per_host: int = 2,
-        read_consistency: Literal["none", "weak", "strong"] = "weak",
+        read_consistency: ReadConsistency = DEFAULT_READ_CONSISTENCY,
         freshness: str = "0",
         log: Union[rqdb.logging.LogConfig, bool] = True,
     ):
@@ -104,7 +105,7 @@ class Connection:
         giving up.
         """
 
-        self.read_consistency: Literal["none", "weak", "strong"] = read_consistency
+        self.read_consistency: ReadConsistency = read_consistency
         """The default read consistency when initializing cursors."""
 
         self.freshness: str = freshness
@@ -115,7 +116,7 @@ class Connection:
 
     def cursor(
         self,
-        read_consistency: Optional[Literal["none", "weak", "strong"]] = None,
+        read_consistency: Optional[ReadConsistency] = None,
         freshness: Optional[str] = None,
     ) -> "Cursor":
         """Creates a new cursor for this connection.
@@ -219,6 +220,7 @@ class Connection:
         stream: bool = False,
         initial_host: Optional[Tuple[str, int]] = None,
         query_info: Optional[rqdb.logging.QueryInfoLazy] = None,
+        slow_query_handled_on_success: bool = False,
     ) -> requests.Response:
         """Fetches a response from the server by requesting it from a random node. If
         a connection error occurs, this method will retry the request on a different
@@ -235,6 +237,12 @@ class Connection:
             query_info (Optional[rqdb.logging.QueryInfo]): The query info for slow
                 query logging, or None to disable slow query logging regardless of
                 the log configuration.
+            slow_query_handled_on_success (bool): If true, the caller assumes responsibility
+                for slow query logging if the response is "successful" (i.e., status code
+                200-299, which could still mean the SQL query failed). This is desirable if
+                more granular timing information is available in the response body, such that
+                we can discount the effect of the async thread being blocked on the response
+                time, or we can more accurately determine which part of the request took time.
 
         Returns:
             requests.Response: If a successful response is received, it is returned.
@@ -260,6 +268,11 @@ class Connection:
 
                 if (
                     query_info is not None
+                    and (
+                        not slow_query_handled_on_success
+                        or result.status_code < 200
+                        or result.status_code >= 300
+                    )
                     and self.log_config.slow_query is not None
                     and self.log_config.slow_query.get("enabled", True)
                 ):
