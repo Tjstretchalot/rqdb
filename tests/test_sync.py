@@ -227,7 +227,7 @@ class Test(unittest.TestCase):
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
-            
+
         conn = rqdb.connect(
             HOSTS,
             log=rqdb.LogConfig(
@@ -255,7 +255,7 @@ class Test(unittest.TestCase):
             response_size_bytes: int,
             started_at: float,
             ended_at: float,
-            result: Optional[BulkResult]
+            result: Optional[BulkResult],
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
@@ -264,7 +264,7 @@ class Test(unittest.TestCase):
             self.assertIsNotNone(result.time)
             for idx, item in enumerate(result.items):
                 self.assertIsNotNone(item.time, f"{idx=}")
-            
+
         conn = rqdb.connect(
             HOSTS,
             log=rqdb.LogConfig(
@@ -292,13 +292,13 @@ class Test(unittest.TestCase):
             response_size_bytes: int,
             started_at: float,
             ended_at: float,
-            **kwargs
+            **kwargs,
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
             self.assertIn("result", kwargs)
             self.assertIsNotNone(kwargs["result"])
-            
+
         conn = rqdb.connect(
             HOSTS,
             log=rqdb.LogConfig(

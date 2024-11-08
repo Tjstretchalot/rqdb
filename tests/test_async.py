@@ -262,8 +262,7 @@ class Test(unittest.TestCase):
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
-            
-        
+
         async with rqdb.connect_async(
             HOSTS,
             log=rqdb.LogConfig(
@@ -275,7 +274,9 @@ class Test(unittest.TestCase):
             ),
         ) as conn:
             cursor = conn.cursor()
-            await cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
             await cursor.execute("DROP TABLE test")
             self.assertEqual(was_slow_ctr, 2)
 
@@ -292,7 +293,7 @@ class Test(unittest.TestCase):
             response_size_bytes: int,
             started_at: float,
             ended_at: float,
-            result: Optional[BulkResult]
+            result: Optional[BulkResult],
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
@@ -301,8 +302,7 @@ class Test(unittest.TestCase):
             self.assertIsNotNone(result.time)
             for idx, item in enumerate(result.items):
                 self.assertIsNotNone(item.time, f"{idx=}")
-            
-        
+
         async with rqdb.connect_async(
             HOSTS,
             log=rqdb.LogConfig(
@@ -314,7 +314,9 @@ class Test(unittest.TestCase):
             ),
         ) as conn:
             cursor = conn.cursor()
-            await cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
             await cursor.execute("DROP TABLE test")
             self.assertEqual(was_slow_ctr, 2)
 
@@ -331,7 +333,7 @@ class Test(unittest.TestCase):
             response_size_bytes: int,
             started_at: float,
             ended_at: float,
-            **kwargs
+            **kwargs,
         ):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
@@ -342,8 +344,7 @@ class Test(unittest.TestCase):
             self.assertIsNotNone(result.time)
             for idx, item in enumerate(result.items):
                 self.assertIsNotNone(item.time, f"{idx=}")
-            
-        
+
         async with rqdb.connect_async(
             HOSTS,
             log=rqdb.LogConfig(
@@ -355,7 +356,9 @@ class Test(unittest.TestCase):
             ),
         ) as conn:
             cursor = conn.cursor()
-            await cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            await cursor.execute(
+                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"
+            )
             await cursor.execute("SELECT * FROM test")
             await cursor.execute("DROP TABLE test")
             self.assertEqual(was_slow_ctr, 3)
