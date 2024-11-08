@@ -10,6 +10,7 @@ from typing import (
 )
 import dataclasses
 import logging
+from rqdb.result import BulkResult
 from rqdb.types import ReadConsistency
 
 
@@ -114,6 +115,7 @@ class SlowQueryLogMethod(Protocol):
         response_size_bytes: int,
         started_at: float,
         ended_at: float,
+        result: Optional[BulkResult],
     ) -> None:
         """Called to log a slow query. Provided the operations and parameters in the
         same format as executemany2, then all the relevant context about the query
@@ -127,7 +129,59 @@ class SlowQueryLogMethod(Protocol):
             response_size_bytes (int): The size of the response in bytes, as reported by the
                 content-length header. 0 if the content-length header was not present in the
                 response.
-            started_at (float): The time that the request was initiated, in seconds since the epoch.
+            started_at (float): The local wall time that the request was
+                initiated, in seconds since the epoch, as if measured by
+                `time.time()`. Note that when the result is available and has
+                timing information, this is not used to determine slow queries
+                (we use the DB time on the server instead).
+            ended_at (float): The time that the response was received, in seconds since the epoch.
+            result (BulkResult, None): If the response could be parsed, the parsed response as a bulk
+                result (if a single operation, it is wrapped inside a bulk result for simplicity of
+                logging).
+
+                NOTE: For compatibility with v<1.6.1 we will detect if a
+                SlowQueryMethodLog does not have a `result` keyword argument and not
+                pass it in that case. This is intended to be removed in v2.0.0.
+        """
+        ...
+
+
+class SlowQueryLogMethodOld(Protocol):
+    """
+    @deprecated Use SlowQueryLogMethod instead
+
+    Prior to version 1.6.1, there was no `result` keyword argument. For compatibility,
+    you may still provid
+    """
+
+    def __call__(
+        self,
+        info: QueryInfo,
+        /,
+        *,
+        duration_seconds: float,
+        host: str,
+        response_size_bytes: int,
+        started_at: float,
+        ended_at: float,
+    ) -> None:
+        """Called to log a slow query. Provided the operations and parameters in the
+        same format as executemany2, then all the relevant context about the query
+        that exceeded the threshold.
+
+        Args:
+            info (QueryInfo): The information about the query.
+            duration_seconds (float): How long it took between us initiating the
+                request and us receiving the response, in seconds
+            host (str): The host that the request was made to.
+            response_size_bytes (int): The size of the response in bytes, as reported by the
+                content-length header. 0 if the content-length header was not present in the
+                response.
+            started_at (float): The local wall time that the request was
+                initiated, in seconds since the epoch, as if measured by
+                `time.time()`. Note that when the result is available and has
+                timing information, this is not used to determine slow queries
+                (we use the DB time on the server instead).
             ended_at (float): The time that the response was received, in seconds since the epoch.
         """
         ...
@@ -203,13 +257,11 @@ class SlowQueryLogMessageConfig(TypedDict):
     be set to for detailed timing information on every query.
     """
 
-    method: SlowQueryLogMethod
+    method: Union[SlowQueryLogMethod, SlowQueryLogMethodOld]
     """The function to call to log the message. If not present,
     then this will be set based on the level of the message.
     For example, a level of DEBUG implies that the method is
     effectively logging.debug.
-
-    The method should support "exc_info=True" as a keyword argument.
     """
 
 

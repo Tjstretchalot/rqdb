@@ -1,6 +1,6 @@
 """This module describes a result for a query or bulk query"""
 from rqdb.errors import DBError as Error
-from typing import Any, Iterator, List, Optional
+from typing import Any, Iterator, List, Optional, cast
 
 
 class ResultItem:
@@ -14,6 +14,7 @@ class ResultItem:
         last_insert_id: Optional[int] = None,
         rows_affected: Optional[int] = None,
         error: Optional[str] = None,
+        time: Optional[float] = None,
     ):
         self.results = results
         """The rows returned by the query. This is the "values" part of the result
@@ -48,6 +49,11 @@ class ResultItem:
         """The actual error text returned by the RQLite server. This is None if
         the query succeeded. It is helpful to use the Error object to determine
         the type of error.
+        """
+
+        self.time = time
+        """How long this request took to run on the server in fractional seconds,
+        if available
         """
 
     @property
@@ -90,20 +96,22 @@ class ResultItem:
         return ResultItemCursor(self.results)
 
     def __repr__(self) -> str:
-        return f"ResultItem(results={repr(self.results)}, last_insert_id={repr(self.last_insert_id)}, rows_affected={repr(self.rows_affected)}, error={repr(self.error)})"
+        return f"ResultItem(results={repr(self.results)}, last_insert_id={repr(self.last_insert_id)}, rows_affected={repr(self.rows_affected)}, error={repr(self.error)}, time={repr(self.time)})"
 
     @classmethod
     def parse(cls, result: dict):
         """Parses a result from the RQLite API into a ResultItem object."""
+        time = cast(Optional[float], result.get("time"))
         if "error" in result:
-            return ResultItem(error=result["error"])
+            return ResultItem(error=result["error"], time=time)
 
         if "values" in result:
-            return ResultItem(results=result["values"])
+            return ResultItem(results=result["values"], time=time)
 
         return ResultItem(
             last_insert_id=result.get("last_insert_id"),
             rows_affected=result.get("rows_affected"),
+            time=time,
         )
 
 
@@ -165,9 +173,13 @@ class BulkResult:
     This can be indexed by the index of the query in the bulk query.
     """
 
-    def __init__(self, items: List[ResultItem]) -> None:
+    def __init__(self, items: List[ResultItem], time: Optional[float] = None) -> None:
         self.items = items
         """The individual result items for the bulk query."""
+        self.time = time
+        """The overall time this request took on the server in fractional seconds,
+        if available
+        """
 
     def raise_if_error_before(self, idx: int) -> "BulkResult":
         """Raises an error if any queries before the given index have errors.
@@ -225,5 +237,6 @@ class BulkResult:
     def parse(cls, payload: dict) -> "BulkResult":
         """Parses a result from the RQLite API into a BulkResult object."""
         return BulkResult(
-            [ResultItem.parse(item) for item in payload.get("results", [])]
+            [ResultItem.parse(item) for item in payload.get("results", [])],
+            time=payload.get("time"),
         )

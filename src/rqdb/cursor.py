@@ -1,4 +1,5 @@
 from functools import partial
+import inspect
 from typing import (
     Any,
     Callable,
@@ -9,6 +10,7 @@ from typing import (
     Tuple,
     TYPE_CHECKING,
     Union,
+    cast,
     overload,
 )
 from rqdb.errors import DBError
@@ -19,7 +21,13 @@ from rqdb.explain import (
     print_explain_query_plan_result,
     write_explain_query_plan,
 )
-from rqdb.logging import QueryInfoLazy, QueryInfoRequestType, log
+from rqdb.logging import (
+    QueryInfo,
+    QueryInfoLazy,
+    QueryInfoRequestType,
+    SlowQueryLogMessageConfig,
+    log,
+)
 from rqdb.result import BulkResult, ResultItem, ResultItemCursor
 from rqdb.preprocessing import (
     determine_unified_request_type,
@@ -60,6 +68,9 @@ class Cursor:
 
         self.last_insert_id: Optional[int] = None
         """The last insert id after the last query"""
+
+        self.time: Optional[float] = None
+        """How long the last request took to run overall, if available"""
 
     @property
     def rowcount(self) -> int:
@@ -106,6 +117,7 @@ class Cursor:
         self.cursor = None
         self.rows_affected = None
         self.last_insert_id = None
+        self.time = None
 
         command = get_sql_command(operation)
         cleaned_query, parameters = clean_nulls(operation, parameters)
@@ -131,14 +143,14 @@ class Cursor:
 
             log(self.connection.log_config.read_start, msg_supplier_1)
 
-            path = f"/db/query?level={read_consistency}&timing"
+            path = f"/db/query?level={read_consistency}&timings"
             if read_consistency == "none":
                 path += f"&freshness={freshness}"
             else:
                 path += "&redirect"
 
             request_started_at = time.perf_counter()
-            response = self.connection.fetch_response(
+            response = self.connection.fetch_response_full(
                 "POST",
                 path,
                 json=[[cleaned_query, *parameters]],
@@ -150,6 +162,7 @@ class Cursor:
                     consistency=read_consistency,
                     freshness=freshness,
                 ),
+                slow_query_handled_on_success=True,
             )
         else:
 
@@ -167,9 +180,9 @@ class Cursor:
             log(self.connection.log_config.write_start, msg_supplier_2)
 
             request_started_at = time.perf_counter()
-            response = self.connection.fetch_response(
+            response = self.connection.fetch_response_full(
                 "POST",
-                "/db/execute",
+                "/db/execute?timings&redirect",
                 json=[[cleaned_query, *parameters]],
                 headers={"Content-Type": "application/json; charset=UTF-8"},
                 query_info=QueryInfoLazy(
@@ -179,17 +192,24 @@ class Cursor:
                     consistency=read_consistency,
                     freshness=freshness,
                 ),
+                slow_query_handled_on_success=True,
             )
 
-        payload = response.json()
-        request_time = time.perf_counter() - request_started_at
+        payload = response.response.json()
+        request_local_time = time.perf_counter() - request_started_at
+        request_server_time = cast(Optional[float], payload.get("time"))
 
         def msg_supplier_3(max_length: Optional[int]) -> str:
-            abridged_payload = response.text
+            abridged_payload = response.response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
 
-            return f"    {{{request_id}}} in {request_time:.3f}s -> {repr(abridged_payload)}"
+            db_time_hint = (
+                ""
+                if request_server_time is None
+                else f" ({request_server_time:.3f}s db-time)"
+            )
+            return f"    {{{request_id}}} in {request_local_time:.3f}s ({response.request_time_perf:.3f}s last host){db_time_hint} -> {repr(abridged_payload)}"
 
         log(
             (
@@ -230,6 +250,11 @@ class Cursor:
 
         self.rows_affected = result.rows_affected
         self.last_insert_id = result.last_insert_id
+        self.time = request_server_time
+
+        self.connection.process_slow_query_if_slow(
+            response, BulkResult([result], request_server_time)
+        )
 
         return result
 
@@ -298,6 +323,7 @@ class Cursor:
                 qargs.append("freshness=" + freshness)
 
         qargs.append("redirect")
+        qargs.append("timings")
 
         path = base_path + "?" + "&".join(qargs)
 
@@ -344,7 +370,7 @@ class Cursor:
         log(self.connection.log_config.write_start, msg_supplier_1)
 
         request_started_at = time.perf_counter()
-        response = self.connection.fetch_response(
+        response = self.connection.fetch_response_full(
             "POST",
             path,
             json=cleaned_request,
@@ -356,23 +382,28 @@ class Cursor:
                 consistency="strong",
                 freshness="",
             ),
+            slow_query_handled_on_success=True,
         )
-        payload = response.json()
+        payload = response.response.json()
         request_time = time.perf_counter() - request_started_at
+        result = BulkResult.parse(payload)
 
         def msg_supplier_2(max_length: Optional[int]) -> str:
-            abridged_payload = response.text
+            abridged_payload = response.response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
-
-            return f"    {{{request_id}}} in {request_time:.3f}s -> {abridged_payload}"
+            db_time_hint = (
+                "" if result.time is None else f" ({result.time:.3f}s db-time)"
+            )
+            return f"    {{{request_id}}} in {request_time:.3f}s ({response.request_time_perf:.3f}s last host){db_time_hint} -> {abridged_payload}"
 
         log(
             self.connection.log_config.write_response,
             msg_supplier_2,
         )
 
-        result = BulkResult.parse(payload)
+        self.connection.process_slow_query_if_slow(response, result)
+
         if raise_on_error:
             result.raise_on_error(f"{request_id=}; {operations=}; {seq_of_parameters=}")
 
@@ -447,6 +478,7 @@ class Cursor:
                 qargs.append("freshness=" + freshness)
 
         qargs.append("redirect")
+        qargs.append("timings")
 
         path = base_path + "?" + "&".join(qargs)
 
@@ -467,7 +499,7 @@ class Cursor:
         log(self.connection.log_config.write_start, msg_supplier_1)
 
         request_started_at = time.perf_counter()
-        response = self.connection.fetch_response(
+        response = self.connection.fetch_response_full(
             "POST",
             path,
             json=cleaned_request,
@@ -483,25 +515,33 @@ class Cursor:
                 consistency=read_consistency,
                 freshness=freshness,
             ),
+            slow_query_handled_on_success=True,
         )
-        payload = response.json()
+        payload = response.response.json()
         request_time = time.perf_counter() - request_started_at
 
+        result = BulkResult.parse(payload)
+
         def msg_supplier_2(max_length: Optional[int]) -> str:
-            abridged_payload = response.text
+            abridged_payload = response.response.text
             if max_length is not None and len(abridged_payload) > max_length:
                 abridged_payload = abridged_payload[:max_length] + "..."
 
-            return f"    {{{request_id}}} in {request_time:.3f}s -> {abridged_payload}"
+            db_time_hint = (
+                "" if result.time is None else f" ({result.time:.3f}s db-time)"
+            )
+            return f"    {{{request_id}}} in {request_time:.3f}s ({response.request_time_perf:.3f}s last host){db_time_hint} -> {abridged_payload}"
 
         log(
             self.connection.log_config.write_response,
             msg_supplier_2,
         )
+        
+        self.connection.process_slow_query_if_slow(response, result)
 
-        result = BulkResult.parse(payload)
         if raise_on_error:
             result.raise_on_error(f"{request_id=}; {operation_and_parameters=}")
+
 
         return result
 

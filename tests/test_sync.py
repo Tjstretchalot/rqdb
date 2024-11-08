@@ -1,9 +1,11 @@
+from typing import Optional, cast
 import helper  # noqa
 import unittest
 import rqdb
 import logging
 import io
-
+import rqdb.logging
+from rqdb.result import BulkResult
 
 HOSTS = ["127.0.0.1:4001", "127.0.0.1:4003", "127.0.0.1:4005"]
 
@@ -210,12 +212,122 @@ class Test(unittest.TestCase):
         cursor.execute("DROP TABLE test")
         self.assertEqual(was_slow_ctr, 2)
 
+    def test_slow_query_old_style(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(
+            info: rqdb.logging.QueryInfo,
+            /,
+            *,
+            duration_seconds: float,
+            host: str,
+            response_size_bytes: int,
+            started_at: float,
+            ended_at: float,
+        ):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+            
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        cursor.execute("DROP TABLE test")
+        self.assertEqual(was_slow_ctr, 2)
+
+    def test_slow_query_new_style(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(
+            info: rqdb.logging.QueryInfo,
+            /,
+            *,
+            duration_seconds: float,
+            host: str,
+            response_size_bytes: int,
+            started_at: float,
+            ended_at: float,
+            result: Optional[BulkResult]
+        ):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertIsNotNone(result.time)
+            for idx, item in enumerate(result.items):
+                self.assertIsNotNone(item.time, f"{idx=}")
+            
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        cursor.execute("DROP TABLE test")
+        self.assertEqual(was_slow_ctr, 2)
+
+    def test_slow_query_new_style_kwvargs(self):
+        was_slow_ctr = 0
+
+        def on_slow_query(
+            info: rqdb.logging.QueryInfo,
+            /,
+            *,
+            duration_seconds: float,
+            host: str,
+            response_size_bytes: int,
+            started_at: float,
+            ended_at: float,
+            **kwargs
+        ):
+            nonlocal was_slow_ctr
+            was_slow_ctr += 1
+            self.assertIn("result", kwargs)
+            self.assertIsNotNone(kwargs["result"])
+            
+        conn = rqdb.connect(
+            HOSTS,
+            log=rqdb.LogConfig(
+                slow_query={
+                    "enabled": True,
+                    "threshold_seconds": 0,
+                    "method": on_slow_query,
+                }
+            ),
+        )
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+        cursor.execute("SELECT * FROM test")
+        cursor.execute("DROP TABLE test")
+        self.assertEqual(was_slow_ctr, 3)
+
     def test_slow_query_executemany2(self):
         was_slow_ctr = 0
 
         def on_slow_query(*args, **kwargs):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
+
+            self.assertIn("result", kwargs)
+            result = cast(BulkResult, kwargs["result"])
+            self.assertIsNotNone(result)
+            self.assertIsNotNone(result.time)
+            for idx, item in enumerate(result.items):
+                self.assertIsNotNone(item.time, f"{idx=}")
 
         conn = rqdb.connect(
             HOSTS,
@@ -243,6 +355,13 @@ class Test(unittest.TestCase):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
 
+            self.assertIn("result", kwargs)
+            result = cast(BulkResult, kwargs["result"])
+            self.assertIsNotNone(result)
+            self.assertIsNotNone(result.time)
+            for idx, item in enumerate(result.items):
+                self.assertIsNotNone(item.time, f"{idx=}")
+
         conn = rqdb.connect(
             HOSTS,
             log=rqdb.LogConfig(
@@ -268,6 +387,13 @@ class Test(unittest.TestCase):
         def on_slow_query(*args, **kwargs):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
+
+            self.assertIn("result", kwargs)
+            result = cast(BulkResult, kwargs["result"])
+            self.assertIsNotNone(result)
+            self.assertIsNotNone(result.time)
+            for idx, item in enumerate(result.items):
+                self.assertIsNotNone(item.time, f"{idx=}")
 
         conn = rqdb.connect(
             HOSTS,
@@ -295,6 +421,13 @@ class Test(unittest.TestCase):
         def on_slow_query(*args, **kwargs):
             nonlocal was_slow_ctr
             was_slow_ctr += 1
+
+            self.assertIn("result", kwargs)
+            result = cast(BulkResult, kwargs["result"])
+            self.assertIsNotNone(result)
+            self.assertIsNotNone(result.time)
+            for idx, item in enumerate(result.items):
+                self.assertIsNotNone(item.time, f"{idx=}")
 
         conn = rqdb.connect(
             HOSTS,

@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,
     Callable,
+    Dict,
     List,
     Literal,
     Optional,
@@ -9,6 +11,7 @@ from typing import (
     Union,
     Protocol,
     cast as typing_cast,
+    TYPE_CHECKING,
 )
 from rqdb.errors import (
     ConnectError,
@@ -28,6 +31,9 @@ import urllib.parse
 from typing import TypeVar
 from rqdb.types import DEFAULT_READ_CONSISTENCY, ReadConsistency
 
+if TYPE_CHECKING:
+    from rqdb.result import BulkResult
+
 
 class SyncWritableIO(Protocol):
     def write(self, data: bytes, /) -> Any:
@@ -37,6 +43,75 @@ class SyncWritableIO(Protocol):
 class AsyncWritableIO(Protocol):
     async def write(self, data: bytes, /) -> Any:
         ...
+
+
+@dataclass(frozen=True)
+class FetchResponseFullResult:
+    response: aiohttp.ClientResponse
+    """The underlying response"""
+
+    method: Literal["GET", "POST"]
+    """The method attempted"""
+
+    uri: str
+    """The uri attempted"""
+
+    json: Any
+    """The json data sent with the request or None"""
+
+    headers: Optional[Dict[str, Any]]
+    """The headers sent with the request"""
+
+    requested_initial_host: Optional[Tuple[str, int]]
+    """The value provided for initial_host to the request; if None, we
+    selected a random host, otherwise, we tried the provided host first
+    """
+
+    node_path: List[Tuple[str, Exception]]
+    """The nodes that failed before we got to the final host"""
+
+    lazy_query_info: Optional[rqdb.logging.QueryInfoLazy]
+    """The query info provided, which may require calling to get the actual
+    values
+    """
+
+    slow_query_handled_on_success: bool
+    """If we were told that slow queries on successful (200-299) status codes
+    would be handled by the caller (True) or us (False)
+    """
+
+    host: Tuple[str, int]
+    """The final host attempted as a (hostname, port) pair"""
+
+    started_at_wall: float
+    """The time we started the final host attempt in seconds since the epoch. This
+    is useful primarily if you are interested in understanding if the request
+    took a long time because of retries (usually not that interesting) or
+    because the actual request took a long time for us to process (usually more
+    interesting).
+    """
+
+    ended_at_wall: float
+    """The time we ended the final host attempt in seconds since the epoch. This
+    is useful primarily if you are interested in understanding if the request
+    took a long time because of retries (usually not that interesting) or
+    because the actual request took a long time for us to process (usually more
+    interesting).
+    """
+
+    request_time_perf: float
+    """The time it took to make the request in fractional seconds on our
+    performance clock. This is not affected by changes to the local clock
+    but is still affected by network latency or local cpu contention
+    """
+
+    response_size_bytes: int
+    """The size of the response in bytes; generally for checking if the
+    request time could reasonably be explained by transfer speed because of
+    a query without a limit. For this to be accurate the server needs to
+    give us an accurate Content-Length header, since we don't read the response
+    eagerly.
+    """
 
 
 T = TypeVar("T")
@@ -243,7 +318,63 @@ class AsyncConnection:
         headers: Optional[dict] = None,
         initial_host: Optional[Tuple[str, int]] = None,
         query_info: Optional[rqdb.logging.QueryInfoLazy] = None,
+        slow_query_handled_on_success: bool = False,
     ) -> aiohttp.ClientResponse:
+        """Fetches a response from the server by requesting it from a random node. If
+        a connection error occurs, this method will retry the request on a different
+        node until it succeeds or the maximum number of attempts is reached.
+
+        Prefer fetch_response_full in most circumstances, which has the same signature
+        but provides more information in the response.
+
+        Args:
+            method (str): The HTTP method to use for the request.
+            uri (str): The URI of the request.
+            json (dict): The json data to send with the request.
+            headers (dict): The headers to send with the request.
+            initial_host (Optional[Tuple[str, int]]): The host to try first. If None,
+                a random host will be chosen.
+            query_info (Optional[rqdb.logging.QueryInfo]): The query info for slow
+                query logging, or None to disable slow query logging regardless of
+                the log configuration.
+            slow_query_handled_on_success (bool): If true, the caller assumes responsibility
+                for slow query logging if the response is "successful" (i.e., status code
+                200-299, which could still mean the SQL query failed). This is desirable if
+                more granular timing information is available in the response body, such that
+                we can discount the effect of the async thread being blocked on the response
+                time, or we can more accurately determine which part of the request took time.
+
+        Returns:
+            aiohttp.ClientResponse: If a successful response is received, it is returned.
+                It has already been __aenter__'d.
+
+        Raises:
+            MaxAttemptsError: If the maximum number of attempts is reached before
+                we get a successful response.
+            UnexpectedResponse: If one of the rqlite nodes returns a response
+                we didn't expect
+        """
+        res = await self.fetch_response_full(
+            method,
+            uri,
+            json,
+            headers,
+            initial_host,
+            query_info,
+            slow_query_handled_on_success,
+        )
+        return res.response
+
+    async def fetch_response_full(
+        self,
+        method: Literal["GET", "POST"],
+        uri: str,
+        json: Any = None,
+        headers: Optional[dict] = None,
+        initial_host: Optional[Tuple[str, int]] = None,
+        query_info: Optional[rqdb.logging.QueryInfoLazy] = None,
+        slow_query_handled_on_success: bool = False,
+    ) -> FetchResponseFullResult:
         """Fetches a response from the server by requesting it from a random node. If
         a connection error occurs, this method will retry the request on a different
         node until it succeeds or the maximum number of attempts is reached.
@@ -258,10 +389,16 @@ class AsyncConnection:
             query_info (Optional[rqdb.logging.QueryInfo]): The query info for slow
                 query logging, or None to disable slow query logging regardless of
                 the log configuration.
+            slow_query_handled_on_success (bool): If true, the caller assumes responsibility
+                for slow query logging if the response is "successful" (i.e., status code
+                200-299, which could still mean the SQL query failed). This is desirable if
+                more granular timing information is available in the response body, such that
+                we can discount the effect of the async thread being blocked on the response
+                time, or we can more accurately determine which part of the request took time.
 
         Returns:
-            aiohttp.ClientResponse: If a successful response is received, it is returned.
-                It has already been __aenter__'d.
+            FetchResponseFullResult: If a successful response is received, it is returned.
+                The response has already been __aenter__'d.
 
         Raises:
             MaxAttemptsError: If the maximum number of attempts is reached before
@@ -272,7 +409,7 @@ class AsyncConnection:
 
         async def attempt_host(
             host: Tuple[str, int], node_path: List[Tuple[str, Exception]]
-        ) -> Optional[aiohttp.ClientResponse]:
+        ) -> Optional[FetchResponseFullResult]:
             try:
                 started_at_wall = time.time()
                 started_at_perf = time.perf_counter()
@@ -286,46 +423,36 @@ class AsyncConnection:
                 request_time_perf = time.perf_counter() - started_at_perf
                 ended_at_wall = time.time()
 
-                if (
-                    query_info is not None
-                    and self.log_config.slow_query is not None
-                    and self.log_config.slow_query.get("enabled", True)
-                ):
-                    config = typing_cast(
-                        rqdb.logging.SlowQueryLogMessageConfig,
-                        self.log_config.slow_query,
-                    )
-                    if request_time_perf >= config.get("threshold_seconds", 5):
-                        config["method"](
-                            rqdb.logging.QueryInfo(
-                                operations=(
-                                    query_info.operations
-                                    if not callable(query_info.operations)
-                                    else query_info.operations()
-                                ),
-                                params=(
-                                    query_info.params
-                                    if not callable(query_info.params)
-                                    else query_info.params()
-                                ),
-                                request_type=(
-                                    query_info.request_type
-                                    if not callable(query_info.request_type)
-                                    else query_info.request_type()
-                                ),
-                                consistency=query_info.consistency,
-                                freshness=query_info.freshness,
-                            ),
-                            duration_seconds=request_time_perf,
-                            host=f"{host[0]}:{host[1]}",
-                            response_size_bytes=int(
-                                result.headers.get("Content-Length", "0")
-                            ),
-                            started_at=started_at_wall,
-                            ended_at=ended_at_wall,
-                        )
+                try:
+                    response_size_bytes = int(result.headers.get("Content-Length", "0"))
+                except ValueError:
+                    response_size_bytes = 0
 
-                return result
+                response = FetchResponseFullResult(
+                    response=result,
+                    method=method,
+                    uri=uri,
+                    json=json,
+                    headers=headers,
+                    requested_initial_host=initial_host,
+                    node_path=node_path,
+                    lazy_query_info=query_info,
+                    slow_query_handled_on_success=slow_query_handled_on_success,
+                    host=host,
+                    started_at_wall=started_at_wall,
+                    ended_at_wall=ended_at_wall,
+                    request_time_perf=request_time_perf,
+                    response_size_bytes=response_size_bytes,
+                )
+
+                if (
+                    not slow_query_handled_on_success
+                    or result.status < 200
+                    or result.status >= 300
+                ):
+                    self.process_slow_query_if_slow(response, None)
+
+                return response
             except ConnectError as e:
 
                 def msg_supplier(max_length: Optional[int]) -> str:
@@ -588,6 +715,77 @@ class AsyncConnection:
         rqdb.logging.log(
             self.log_config.backup_end,
             lambda _: f"    {{{request_id}}} in {time_taken:.3f}s ->> backup fully written",
+        )
+
+    def process_slow_query_if_slow(
+        self, response: FetchResponseFullResult, result: Optional["BulkResult"]
+    ) -> None:
+        """Checks if the given query was slow based on the response and result. If it was
+        slow and slow query logging is enabled, the slow query log message will be created
+        and sent to the log method.
+
+        Args:
+            response (FetchResponseFullResult): The response to check for slowness.
+            result (BulkResult): The result of the query, if available. If available
+                and it has timing information, we use that instead of the local timing
+                to avoid confusing DB time with e.g. network time
+        """
+        if not self.log_config.slow_query or not self.log_config.slow_query.get(
+            "enabled", True
+        ):
+            return
+        if response.lazy_query_info is None:
+            return
+        config = typing_cast(
+            rqdb.logging.SlowQueryLogMessageConfig,
+            self.log_config.slow_query,
+        )
+
+        slow_threshold = config.get("threshold_seconds", 5)
+
+        if result is None:
+            if response.request_time_perf < slow_threshold:
+                return
+        elif result.time is not None:
+            if result.time < slow_threshold:
+                return
+        else:
+            if all(r.time is not None for r in result.items):
+                if sum((r.time or 0) for r in result.items) < slow_threshold:
+                    return
+            elif response.request_time_perf < slow_threshold:
+                return
+
+        method_argspec = inspect.getfullargspec(config["method"])
+        accepts_result_kwarg = (
+            "result" in method_argspec.kwonlyargs or method_argspec.varkw is not None
+        )
+        config["method"](
+            rqdb.logging.QueryInfo(
+                operations=(
+                    response.lazy_query_info.operations
+                    if not callable(response.lazy_query_info.operations)
+                    else response.lazy_query_info.operations()
+                ),
+                params=(
+                    response.lazy_query_info.params
+                    if not callable(response.lazy_query_info.params)
+                    else response.lazy_query_info.params()
+                ),
+                request_type=(
+                    response.lazy_query_info.request_type
+                    if not callable(response.lazy_query_info.request_type)
+                    else response.lazy_query_info.request_type()
+                ),
+                consistency=response.lazy_query_info.consistency,
+                freshness=response.lazy_query_info.freshness,
+            ),
+            duration_seconds=response.request_time_perf,
+            host=f"{response.host[0]}:{response.host[1]}",
+            response_size_bytes=response.response_size_bytes,
+            started_at=response.started_at_wall,
+            ended_at=response.ended_at_wall,
+            **({"result": result} if accepts_result_kwarg else {}),
         )
 
 
