@@ -94,10 +94,10 @@ cursor.explain("SELECT id FROM persons WHERE TRIM(given_name || ' ' || family_na
 ### Read Consistency
 
 Selecting read consistency is done at the cursor level, either by passing
-`read_consistency` to the cursor constructor (`conn.cursor()`) or by setting
-the instance variable `read_consistency` directly. The available consistencies
-are `strong`, `weak`, and `none`. You may also indicate the `freshness` value
-at the cursor level.
+`read_consistency` to the cursor constructor (`conn.cursor()`) or by setting the
+instance variable `read_consistency` directly. The available consistencies are
+`strong`, `weak`, `linearizable` and `none`. You may also indicate the
+`freshness` value at the cursor level.
 
 See [CONSISTENCY.md](https://github.com/rqlite/rqlite/blob/master/DOC/CONSISTENCY.md) for
 details.
