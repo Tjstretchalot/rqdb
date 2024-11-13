@@ -99,7 +99,7 @@ instance variable `read_consistency` directly. The available consistencies are
 `strong`, `weak`, `linearizable` and `none`. You may also indicate the
 `freshness` value at the cursor level.
 
-See [CONSISTENCY.md](https://github.com/rqlite/rqlite/blob/master/DOC/CONSISTENCY.md) for
+See [Read Consistency](https://rqlite.io/docs/api/read-consistency/) for
 details.
 
 The default consistency is `weak`.
@@ -107,15 +107,17 @@ The default consistency is `weak`.
 ### Foreign Keys
 
 Foreign key support in rqlite is disabled by default, to match sqlite. This is a common source
-of confusion. It cannot be configured by the client reliably. Foreign key support
-is enabled as described in
-[FOREIGN_KEY_CONSTRAINTS.md](https://github.com/rqlite/rqlite/blob/master/DOC/FOREIGN_KEY_CONSTRAINTS.md)
+of confusion. It cannot be configured by the client reliably. 
+
+However you can enable foreign key constraints in rqlite via the command line option `-fk`. Setting this command line will enable Foreign Key constraints on all connections that rqlite makes to the underlying SQLite database.
+
+Issuing the `PRAGMA foreign_keys = boolean` command usually results in unpredictable behaviour, since rqlite doesn't offer connection-level control of the underlying SQLite database. It is not recommended.
 
 ### Nulls
 
 Substituting "NULL" in parametrized queries can be error-prone. In particular,
-sqlite needs null sent in a very particular way, which the rqlite server has
-historically not handled properly.
+sqlite needs null sent in a very particular way. In very old versions of rqlite,
+this wasn't handled well.
 
 By default, if you attempt to use "None" as a parameter to a query, this package
 will perform string substition with the value "NULL" in the correct spot. Be
