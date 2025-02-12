@@ -236,7 +236,20 @@ class BulkResult:
     @classmethod
     def parse(cls, payload: dict) -> "BulkResult":
         """Parses a result from the RQLite API into a BulkResult object."""
+        items = [ResultItem.parse(item) for item in payload.get("results", [])]
+
+        bulk_error = payload.get("error")
+        if isinstance(bulk_error, str):
+            error_item = ResultItem(
+                results=None,
+                last_insert_id=None,
+                rows_affected=None,
+                error=bulk_error,
+                time=payload.get("time"),
+            )
+            items.insert(0, error_item)
+
         return BulkResult(
-            [ResultItem.parse(item) for item in payload.get("results", [])],
+            items=items,
             time=payload.get("time"),
         )
