@@ -34,8 +34,7 @@ if TYPE_CHECKING:
 
 
 class SyncWritableIO(Protocol):
-    def write(self, data: bytes, /) -> Any:
-        ...
+    def write(self, data: bytes, /) -> Any: ...
 
 
 @dataclass(frozen=True)

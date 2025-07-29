@@ -674,8 +674,7 @@ class Cursor:
         freshness: Optional[str] = None,
         indent: int = 3,
         include_raw: bool = False,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     def explain(
@@ -688,8 +687,7 @@ class Cursor:
         freshness: Optional[str] = None,
         indent: int = 3,
         include_raw: bool = False,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     def explain(
@@ -700,8 +698,7 @@ class Cursor:
         out: Literal["plan"],
         read_consistency: Optional[Literal["none", "weak"]] = None,
         freshness: Optional[str] = None,
-    ) -> ExplainQueryPlan:
-        ...
+    ) -> ExplainQueryPlan: ...
 
     @overload
     def explain(
@@ -714,8 +711,7 @@ class Cursor:
         freshness: Optional[str] = None,
         indent: int = 3,
         include_raw: bool = False,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def explain(
         self,
@@ -780,12 +776,13 @@ class Cursor:
                 else "weak"
             )
 
-        result = self.execute(
-            operation,
-            parameters,
+        bulk_result = self.executeunified2(
+            (operation,),
+            (parameters,) if parameters is not None else None,
             read_consistency=read_consistency,
             freshness=freshness,
         )
+        result = bulk_result.items[0]
         if out == "plan":
             return parse_explain_query_plan(result)
         elif out == "str":

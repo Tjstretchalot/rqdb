@@ -640,8 +640,7 @@ class AsyncCursor:
         freshness: Optional[str] = None,
         indent: int = 3,
         include_raw: bool = False,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     async def explain(
@@ -654,8 +653,7 @@ class AsyncCursor:
         freshness: Optional[str] = None,
         indent: int = 3,
         include_raw: bool = False,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     async def explain(
@@ -666,8 +664,7 @@ class AsyncCursor:
         out: Literal["plan"],
         read_consistency: Optional[Literal["none", "weak"]] = None,
         freshness: Optional[str] = None,
-    ) -> ExplainQueryPlan:
-        ...
+    ) -> ExplainQueryPlan: ...
 
     @overload
     async def explain(
@@ -681,8 +678,7 @@ class AsyncCursor:
         indent: int = 3,
         include_raw: bool = False,
         sync: Optional[Literal[True]] = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     async def explain(
@@ -696,8 +692,7 @@ class AsyncCursor:
         indent: int = 3,
         include_raw: bool = False,
         sync: Optional[Literal[False]] = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     async def explain(
         self,
@@ -774,12 +769,13 @@ class AsyncCursor:
                 else "weak"
             )
 
-        result = await self.execute(
-            operation,
-            parameters,
+        bulk_result = await self.executeunified2(
+            (operation,),
+            (parameters,) if parameters is not None else None,
             read_consistency=read_consistency,
             freshness=freshness,
         )
+        result = bulk_result.items[0]
         if out == "plan":
             return parse_explain_query_plan(result)
         elif out == "str":

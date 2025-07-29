@@ -15,8 +15,7 @@ from rqdb.types import ReadConsistency
 
 
 class LogMethod(Protocol):
-    def __call__(self, msg: str, *, exc_info: bool = False) -> Any:
-        ...
+    def __call__(self, msg: str, *, exc_info: bool = False) -> Any: ...
 
 
 QueryInfoRequestType = Literal[
@@ -354,9 +353,9 @@ class LogConfig:
     redirects.
     """
 
-    slow_query: Union[
-        SlowQueryLogMessageConfig, DisabledMessageConfig
-    ] = dataclasses.field(default_factory=lambda: DisabledMessageConfig(enabled=False))
+    slow_query: Union[SlowQueryLogMessageConfig, DisabledMessageConfig] = (
+        dataclasses.field(default_factory=lambda: DisabledMessageConfig(enabled=False))
+    )
     """Configures the message to log when we get a response from
     the server, but that response takes longer than a certain
     threshold to arrive.

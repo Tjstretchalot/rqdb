@@ -1,6 +1,7 @@
 """This module is intended to take the result from EXPLAIN QUERY PLAN and
 format in a more human-readable way.
 """
+
 from typing import Dict, List, Optional, TYPE_CHECKING
 from rqdb.result import ResultItem
 from dataclasses import dataclass

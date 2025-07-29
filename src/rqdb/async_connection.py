@@ -36,13 +36,11 @@ if TYPE_CHECKING:
 
 
 class SyncWritableIO(Protocol):
-    def write(self, data: bytes, /) -> Any:
-        ...
+    def write(self, data: bytes, /) -> Any: ...
 
 
 class AsyncWritableIO(Protocol):
-    async def write(self, data: bytes, /) -> Any:
-        ...
+    async def write(self, data: bytes, /) -> Any: ...
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,7 @@
 """This module is for any necessary SQL preprocessing required for the
 rqlite client.
 """
+
 import re
 from typing import Any, Iterable, Literal, Tuple
 

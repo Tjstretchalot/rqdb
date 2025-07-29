@@ -1,4 +1,5 @@
-"""Uses setuptools to install the vanillaplusjs module"""
+"""Uses setuptools to install the module"""
+
 import setuptools
 
 setuptools.setup()

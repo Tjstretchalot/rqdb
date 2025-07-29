@@ -1,4 +1,5 @@
 """This module describes a result for a query or bulk query"""
+
 from rqdb.errors import DBError as Error
 from typing import Any, Iterator, List, Optional, cast
 
