@@ -1,6 +1,5 @@
 from typing import Literal
 
-
 ReadConsistency = Literal["none", "weak", "linearizable", "strong"]
 """https://rqlite.io/docs/api/read-consistency/
 

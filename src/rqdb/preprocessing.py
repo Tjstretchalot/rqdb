@@ -5,7 +5,6 @@ rqlite client.
 import re
 from typing import Any, Iterable, Literal, Tuple
 
-
 WITH_MATCHER = re.compile(
     r"WITH( RECURSIVE)?\s+(,?\s*\S+(\s?\([^\)]+\))?\s+AS\s+((NOT\s+)?MATERIALIZED\s+)?\(.+?\))+\s+(?P<cmd>INSERT|UPDATE|DELETE|SELECT)",
     re.IGNORECASE | re.DOTALL,

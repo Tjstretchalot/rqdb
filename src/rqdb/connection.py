@@ -276,12 +276,14 @@ class Connection:
         index = 0
         attempt = 1
 
-        while index < len(self.hosts) or attempt < self.max_attempts_per_host:
+        while True:
             if index + 1 < len(self.hosts):
                 index += 1
             else:
                 index = 0
                 attempt += 1
+                if attempt > self.max_attempts_per_host:
+                    break
 
             if resp := attempt_host(node_ordering[index], node_path):
                 return resp
