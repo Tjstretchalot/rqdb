@@ -8,7 +8,6 @@ import io
 import rqdb.logging
 from rqdb.result import BulkResult
 
-
 HOSTS = ["127.0.0.1:4001", "127.0.0.1:4003", "127.0.0.1:4005"]
 
 
